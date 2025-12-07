@@ -1,7 +1,6 @@
 import numpy as np
 import random
 import matplotlib.pyplot as plt
-from tqdm import tqdm
 
 class PredatorPreySDP:
     """
@@ -53,16 +52,21 @@ class PredatorPreySDP:
             P_cull:int = 5,
         ) -> None:
         """
-        d - Minimum value of the population. If below d, pop will extinct
-        a - The success rate of hunts by predator population
-        K - Carrying capacity of prey
-        r - The growth rate of prey
-        b - The birth rate of predators (reliant on prey pop)
-        mu - The death reate of predators
-        sigma - SD of stochastic noise
-        time - the amount of time to run the simulation
+        Run simulations to build transition matrix
 
-        cull = ['none', 'prey','predator']
+        :param d: Extinction threshold
+        :param a: Predator hunt success rate
+        :param K: Prey carrying capacity
+        :param r: Prey growth rate
+        :param b: Predator birth rate, based on prey abundance
+        :param mu: Predator mortality rate
+        :param sigma: Environmental stochasticity
+        :param matrix_name: Name of the transition matrix, suggested T Matrix, T N Matrix 1, etc.
+        :param time: Maximum time steps per simulation
+        :param sims: Number of simulations per state
+        :param cull: Type of culling ('prey', 'predator', 'none')
+        :param N_cull: Number of prey to cull if culling prey
+        :param P_cull: Number of predators to cull if culling predators
         """
         state_f_ind = 0
         state_i_ind = 0
@@ -123,11 +127,21 @@ class PredatorPreySDP:
         for mat in self.T_mats:
             self.T_mats[mat] = self.mat_normalize(self.T_mats[mat])
 
-    def mat_normalize(self,mat):
+    def mat_normalize(self,mat) -> np.array:
+        """
+        Normalize a matrix by row sums
+        
+        :param mat: Matrix to normalize
+        """
         row_sums = mat.sum(axis=1, keepdims=True)
         return np.divide(mat, row_sums, where=row_sums!=0)
 
-    def sdp(self, t_max:int = 250):
+    def sdp(self, t_max:int = 250)-> None:
+        """
+        Perform stochastic dynamic programming to find optimal culling strategy
+
+        :param t_max: Maximum time horizon
+        """
         self.t_max = t_max
         V = self.S_mat**2
 
@@ -148,7 +162,10 @@ class PredatorPreySDP:
             V = np.max(cull, axis=1)
             self.A_mat[:, self.t_max - t -1] = np.argmax(cull,axis=1)
 
-    def reset_lists(self):
+    def reset_lists(self) -> None:
+        """
+        Reset the lists used to store population trajectories and extinction times
+        """
         self.extinct = {'managed':[], 'unmanaged':[]}
         self.ext_mats = None
         self.N_list = {'managed':[], 'unmanaged':[]}
@@ -167,7 +184,22 @@ class PredatorPreySDP:
             mu=0.1,
             sigma=0.05,
             time=200,
-        ):
+        ) -> None:
+        """
+        Simulate population dynamics given initial populations and parameters
+
+        :param cull: Whether to apply culling based on the optimal strategy
+        :param N_0: Initial prey population
+        :param P_0: Initial predator population
+        :param d: Extinction threshold
+        :param a: Predator hunt success rate
+        :param K: Prey carrying capacity
+        :param r: Prey growth rate
+        :param b: Predator birth rate, based on prey abundance
+        :param mu: Predator mortality rate
+        :param sigma: Environmental stochasticity
+        :param time: Maximum time steps per simulation
+        """
         
         if self.ext_mats == None:
             self.ext_mats = {'managed': [np.zeros((self.N_max+1,self.P_max+1))
@@ -238,7 +270,13 @@ class PredatorPreySDP:
             self.N_list['unmanaged'].append(N)
             self.P_list['unmanaged'].append(P)
 
-    def plot(self, type,i=None):
+    def plot(self, type:list,i=None) -> plt.Figure:
+        """
+        Plot population time series
+
+        :param type: 'managed' or 'unmanaged' population
+        :param i: Index of the population trajectory to plot, defaults to the last one
+        """
         if i is None:
             i = len(self.N_list[type]) - 1
 
