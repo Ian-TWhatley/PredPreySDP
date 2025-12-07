@@ -1,10 +1,29 @@
 import numpy as np
 import random
 import matplotlib.pyplot as plt
-from tqdm import tqdm
 
 class PredatorPreySDP:
+    """
+    Discrete predator-prey ODE simulation with stochastic noise and a stochastic dynamic programming component
+
+    Attributes:
+        extinct (dict): Dictionary to store extinction times for managed and unmanaged populations
+        ext_mats (dict): Matrices to store extinction counts and times
+        N_list (dict): Lists to store prey population trajectories for managed and unmanaged populations
+        P_list (dict): Lists to store predator population trajectories for managed and unmanaged populations
+        S_mat (np.array): State matrix containing all possible population states
+        num_states (int): Number of states in the state matrix
+        T_mats (dict): Transition matrices for different culling strategies
+        N_max (int): Maximum prey population
+        P_max (int): Maximum predator population
+    """
     def __init__(self, N_max = 40, P_max=30):
+        """
+        Initialize an instance
+        
+        :param N_max: The maximum prey population
+        :param P_max: The maximum predator population
+        """
         self.extinct = {'managed':[], 'unmanaged':[]}
         self.ext_mats = None
         self.N_list = {'managed':[], 'unmanaged':[]}
@@ -31,18 +50,23 @@ class PredatorPreySDP:
             cull:str = 'none',
             N_cull:int = 5,
             P_cull:int = 5,
-        ):
+        ) -> None:
         """
-        d - Minimum value of the population. If below d, pop will extinct
-        a - The success rate of hunts by predator population
-        K - Carrying capacity of prey
-        r - The growth rate of prey
-        b - The birth rate of predators (reliant on prey pop)
-        mu - The death reate of predators
-        sigma - SD of stochastic noise
-        time - the amount of time to run the simulation
+        Run simulations to build transition matrix
 
-        cull = ['none', 'prey','predator']
+        :param d: Extinction threshold
+        :param a: Predator hunt success rate
+        :param K: Prey carrying capacity
+        :param r: Prey growth rate
+        :param b: Predator birth rate, based on prey abundance
+        :param mu: Predator mortality rate
+        :param sigma: Environmental stochasticity
+        :param matrix_name: Name of the transition matrix, suggested T Matrix, T N Matrix 1, etc.
+        :param time: Maximum time steps per simulation
+        :param sims: Number of simulations per state
+        :param cull: Type of culling ('prey', 'predator', 'none')
+        :param N_cull: Number of prey to cull if culling prey
+        :param P_cull: Number of predators to cull if culling predators
         """
         state_f_ind = 0
         state_i_ind = 0
@@ -103,11 +127,21 @@ class PredatorPreySDP:
         for mat in self.T_mats:
             self.T_mats[mat] = self.mat_normalize(self.T_mats[mat])
 
-    def mat_normalize(self,mat):
+    def mat_normalize(self,mat) -> np.array:
+        """
+        Normalize a matrix by row sums
+        
+        :param mat: Matrix to normalize
+        """
         row_sums = mat.sum(axis=1, keepdims=True)
         return np.divide(mat, row_sums, where=row_sums!=0)
 
-    def sdp(self, t_max:int = 250):
+    def sdp(self, t_max:int = 250)-> None:
+        """
+        Perform stochastic dynamic programming to find optimal culling strategy
+
+        :param t_max: Maximum time horizon
+        """
         self.t_max = t_max
         V = self.S_mat**2
 
@@ -128,92 +162,14 @@ class PredatorPreySDP:
             V = np.max(cull, axis=1)
             self.A_mat[:, self.t_max - t -1] = np.argmax(cull,axis=1)
 
-    def reset_lists(self):
+    def reset_lists(self) -> None:
+        """
+        Reset the lists used to store population trajectories and extinction times
+        """
         self.extinct = {'managed':[], 'unmanaged':[]}
         self.ext_mats = None
         self.N_list = {'managed':[], 'unmanaged':[]}
         self.P_list = {'managed':[], 'unmanaged':[]}
-
-    def extinction_matrices(
-            self,
-            reset:bool= True,
-            cull:bool = True,
-            N_0 = None,
-            P_0 = None,
-            d=2,
-            a=0.01,
-            K=100,
-            r=1.3,
-            b=0.08,
-            mu=0.1,
-            sigma=0.05,
-            time=200,
-            sims =1,
-        ):
-        
-        if self.ext_mats == None or reset:
-            self.ext_mats = {'managed': np.zeros((self.N_max+1,self.P_max+1)), 'unmanaged':np.zeros((self.N_max+1,self.P_max+1))}
-
-        if cull:
-            P_mat = np.zeros((self.N_max, self.P_max))
-
-            for i in range(self.num_states):
-                n = int(self.S_mat[i, 0])
-                p = int(self.S_mat[i, 1])
-                P_mat[n-1, p-1] = self.A_mat[i, 0]
-
-        for i in range(self.num_states):
-            N_0 = int(self.S_mat[i,0])
-            P_0 = int(self.S_mat[i,1])
-            N = [N_0]
-            P = [P_0]
-            for _ in sims:
-                for t in range(1, time):
-                    # stochasticity
-                    Z_N = random.lognormvariate(0, sigma)
-                    Z_P = random.lognormvariate(0, sigma)
-
-                    # prey update
-                    N_next = r*N[t-1]*(1 - N[t-1] / K) - a*N[t-1]*P[t-1]
-
-                    # predator update
-                    P_next = b*P[t-1]*N[t-1] - mu*P[t-1]
-                    P_next = round(P_next)
-
-                    # check if we need to cull
-                    if cull:
-                        if N[t-1] > self.N_max and P[t-1] > self.P_max:
-                            N_next += -P_mat[self.N_max - 1, self.P_max - 1]
-                        if N[t-1] > self.N_max:
-                            N_next += -P_mat[self.N_max - 1, round(P[t-1])-1]
-                        if P[t-1] > self.P_max:
-                            N_next += -P_mat[round(N[t-1])-1, self.P_max-1]
-                        else:
-                            N_next += -P_mat[round(N[t-1])-1, round(P[t-1])-1]
-
-                    N.append(round(Z_N * N_next))
-                    P.append(round(Z_P * P_next))
-
-                    # extinction check
-                    if N[t] < d or P[t] < d:
-                        if cull:
-                            self.extinct['managed'].append(len(N))
-                            self.N_list['managed'].append(N)
-                            self.P_list['managed'].append(P)
-                            self.ext_mats['managed'][N_0,P_0] += 1
-                            break
-                        else:
-                            self.extinct['unmanaged'].append(len(N))
-                            self.N_list['unmanaged'].append(N)
-                            self.P_list['unmanaged'].append(P)
-                            self.ext_mats['unmanaged'][N_0,P_0] += 1
-                            break
-                if cull:
-                    self.N_list['managed'].append(N)
-                    self.P_list['managed'].append(P)
-                else:
-                    self.N_list['unmanaged'].append(N)
-                    self.P_list['unmanaged'].append(P)
 
     def model_pop(
             self,
@@ -228,10 +184,28 @@ class PredatorPreySDP:
             mu=0.1,
             sigma=0.05,
             time=200,
-        ):
+        ) -> None:
+        """
+        Simulate population dynamics given initial populations and parameters
+
+        :param cull: Whether to apply culling based on the optimal strategy
+        :param N_0: Initial prey population
+        :param P_0: Initial predator population
+        :param d: Extinction threshold
+        :param a: Predator hunt success rate
+        :param K: Prey carrying capacity
+        :param r: Prey growth rate
+        :param b: Predator birth rate, based on prey abundance
+        :param mu: Predator mortality rate
+        :param sigma: Environmental stochasticity
+        :param time: Maximum time steps per simulation
+        """
         
         if self.ext_mats == None:
-            self.ext_mats = {'managed': np.zeros((self.N_max+1,self.P_max+1)), 'unmanaged':np.zeros((self.N_max+1,self.P_max+1))}
+            self.ext_mats = {'managed': [np.zeros((self.N_max+1,self.P_max+1))
+                                        , np.zeros((self.N_max+1,self.P_max+1))], 
+                            'unmanaged':[np.zeros((self.N_max+1,self.P_max+1))
+                                        , np.zeros((self.N_max+1,self.P_max+1))]}
 
         if cull:
             P_mat = np.zeros((self.N_max, self.P_max))
@@ -279,13 +253,15 @@ class PredatorPreySDP:
                     self.extinct['managed'].append(len(N))
                     self.N_list['managed'].append(N)
                     self.P_list['managed'].append(P)
-                    self.ext_mats['managed'][N_0,P_0] += 1
+                    self.ext_mats['managed'][0][N_0,P_0] += 1
+                    self.ext_mats['managed'][1][N_0,P_0] += t
                     break
                 else:
                     self.extinct['unmanaged'].append(len(N))
                     self.N_list['unmanaged'].append(N)
                     self.P_list['unmanaged'].append(P)
-                    self.ext_mats['unmanaged'][N_0,P_0] += 1
+                    self.ext_mats['unmanaged'][0][N_0,P_0] += 1
+                    self.ext_mats['unmanaged'][1][N_0,P_0] += t
                     break
         if cull:
             self.N_list['managed'].append(N)
@@ -294,7 +270,13 @@ class PredatorPreySDP:
             self.N_list['unmanaged'].append(N)
             self.P_list['unmanaged'].append(P)
 
-    def plot(self, type,i=None):
+    def plot(self, type:list,i=None) -> plt.Figure:
+        """
+        Plot population time series
+
+        :param type: 'managed' or 'unmanaged' population
+        :param i: Index of the population trajectory to plot, defaults to the last one
+        """
         if i is None:
             i = len(self.N_list[type]) - 1
 
@@ -307,9 +289,11 @@ class PredatorPreySDP:
 
         return fig
     
-    def plot_sdp(self):
+    def plot_sdp(self)-> plt.Figure:
         '''
         Plot an optimal culling strategy
+
+        Actions:
         0 - No cull
         1 - Cull predator
         2 - Cull prey
@@ -328,4 +312,3 @@ class PredatorPreySDP:
         ax.set_ylabel("P")
         ax.set_title("Optimal Action Map")
         return fig
-        

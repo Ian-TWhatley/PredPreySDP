@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pickle
 
-def run(inits:list = None, args:list = None):
+def run(inits:list = None, args:list = None) -> None:
     sim = PredatorPreySDP(*inits)
     sim.run(*args, matrix_name="T Matrix", sims=300, time = 3)
     sim.run(*args, matrix_name="T N Matrix 1", time = 3, sims=100, cull = 'prey', N_cull= 1)
@@ -28,7 +28,7 @@ def run(inits:list = None, args:list = None):
     return sim
 
 @st.cache_resource
-def load_sim():
+def load_sim() -> PredatorPreySDP:
     with open("SDP_simulation.pkl", "rb") as f:
         sim = pickle.load(f)
     return sim
@@ -55,7 +55,6 @@ if __name__ == "__main__":
         N_max = st.slider('Max N', 0, 100, 40)
         P_max = st.slider('Max P', 0, 100, 30)
 
-        st.help('HELP')
         K = st.number_input('K', 0, 1000, 100)
         d = st.slider('d', 0, 10, 2)
         a = st.slider('a', 0.0, 1.0, 0.01)
@@ -63,11 +62,33 @@ if __name__ == "__main__":
         b = st.slider('b', 0.0, 1.0, 0.08)
         mu = st.slider('mu', 0.0, 1.0, 0.1)
         sigma = st.slider('sigma', 0.0, 1.0, 0.05)
+
+        on = st.toggle("Display Guide")
+        if on:
+            st.info(
+                """
+                d - Minimum value of the population. If below d, pop will extinct
+
+                a - The success rate of hunts by predator population
+
+                K - Carrying capacity of prey
+
+                r - The growth rate of prey
+
+                b - The birth rate of predators (reliant on prey pop)
+
+                mu - The death reate of predators
+
+                sigma - The environmental stochasticity factor
+                """
+        )
         
         inits = [N_max,P_max]
         args = [d,a,K,r,b,mu,sigma]
 
     st.title("Predator Prey SDP")
+    if st.toggle("Show Class Documentation", key="show_doc"):
+        st.help(PredatorPreySDP)
     if st.session_state["ran_sim"] == True:
         if st.session_state['ran_default_sim'] == True:
             sim = load_sim()
@@ -119,7 +140,7 @@ if __name__ == "__main__":
             man_time_plot = sim.plot(type='managed', i=man_number)
             st.pyplot(man_time_plot)
 
-        st.header('Extinction Matrices')
+        st.header('Percent Extinction Matrices')
         col1, col2, col3 = st.columns(3)
 
         # Unmanaged extinction matrix
@@ -128,7 +149,7 @@ if __name__ == "__main__":
             c1 = ax1.pcolor(
                 np.arange(sim.N_max+1),
                 np.arange(sim.P_max+1),
-                sim.ext_mats['unmanaged'].T / 100,
+                sim.ext_mats['unmanaged'][0].T / 100,
                 shading='auto'
             )
             fig1.colorbar(c1, ax=ax1, label="Extinction %")
@@ -143,7 +164,7 @@ if __name__ == "__main__":
             c2 = ax2.pcolor(
                 np.arange(sim.N_max+1),
                 np.arange(sim.P_max+1),
-                sim.ext_mats['managed'].T / 100,
+                sim.ext_mats['managed'][0].T / 100,
                 shading='auto'
             )
             fig2.colorbar(c2, ax=ax2, label="Extinction %")
@@ -158,7 +179,7 @@ if __name__ == "__main__":
             c3 = ax3.pcolor(
                 np.arange(sim.N_max+1),
                 np.arange(sim.P_max+1),
-                (sim.ext_mats['unmanaged'] - sim.ext_mats['managed']).T / 100,
+                (sim.ext_mats['unmanaged'][0] - sim.ext_mats['managed'][0]).T / 100,
                 shading='auto'
             )
             fig3.colorbar(c3, ax=ax3, label="Extinction Difference %")
@@ -166,3 +187,52 @@ if __name__ == "__main__":
             ax3.set_ylabel("P₀")
             ax3.set_title("Difference Matrix")
             st.pyplot(fig3)
+
+        st.header('Average Extinction Time Matrices')
+        col1, col2 = st.columns(2)
+
+        # Unmanaged extinction matrix
+        with col1:
+            fig1, ax1 = plt.subplots(figsize=(6, 5))
+            c1 = ax1.pcolor(
+                np.arange(sim.N_max+1),
+                np.arange(sim.P_max+1),
+                sim.ext_mats['unmanaged'][1].T / sim.ext_mats['unmanaged'][0].T,
+                shading='auto'
+            )
+            fig1.colorbar(c1, ax=ax1, label="Average Extinction Time")
+            ax1.set_xlabel("N₀")
+            ax1.set_ylabel("P₀")
+            ax1.set_title("Unmanaged Extinction")
+            st.pyplot(fig1)
+
+        # Managed extinction matrix
+        with col2:
+            fig2, ax2 = plt.subplots(figsize=(6, 5))
+            c2 = ax2.pcolor(
+                np.arange(sim.N_max+1),
+                np.arange(sim.P_max+1),
+                sim.ext_mats['managed'][1].T / sim.ext_mats['managed'][0].T,
+                shading='auto'
+            )
+            fig2.colorbar(c2, ax=ax2, label="Average Extinction Time")
+            ax2.set_xlabel("N₀")
+            ax2.set_ylabel("P₀")
+            ax2.set_title("Managed Extinction")
+            st.pyplot(fig2)
+
+        # Difference matrix - Not ready yet, fix NaN to by infinity
+        # with col3:
+        #     fig3, ax3 = plt.subplots(figsize=(6, 5))
+        #     c3 = ax3.pcolor(
+        #         np.arange(sim.N_max+1)
+        #         , np.arange(sim.P_max+1)
+        #         , (sim.ext_mats['unmanaged'][1] - sim.ext_mats['managed'][1]).T/
+        #             (sim.ext_mats['unmanaged'][0] - sim.ext_mats['managed'][0]).T
+        #         , shading='auto'
+        #     )
+        #     fig3.colorbar(c3, ax=ax3, label="Average Extinction Time Difference")
+        #     ax3.set_xlabel("N₀")
+        #     ax3.set_ylabel("P₀")
+        #     ax3.set_title("Difference Matrix")
+        #     st.pyplot(fig3)
