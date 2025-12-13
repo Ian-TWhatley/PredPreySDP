@@ -135,15 +135,67 @@ class PredatorPreySDP:
         """
         row_sums = mat.sum(axis=1, keepdims=True)
         return np.divide(mat, row_sums, where=row_sums!=0)
+    
+    def sdp_economic(self, c_base, base_price, t_max:int = 250)-> None:
+        R_mat = np.zeros((self.num_states,len(list(self.T_mats.items())))) # 10 population states, 5 harvest levels (0-4)
 
-    def sdp(self, t_max:int = 250)-> None:
+        for i in range(self.num_states):
+            N_i =  float(self.S_mat[i,0])
+            v_scarce = 1 + (1 - N_i/self.N_max)  # Scarcity multiplier increases as population decreases
+            for j in range(0,len(list(self.T_mats.items()))):
+                # R_i,j = Harvest_j * Base_Price * V_scarcity(N_i) - Cost_j
+                # We apply the scarcity multiplier (V_scarcity) to the base price
+                if N_i == 0:
+                    R_mat[i, j] = 0
+                    continue
+                harv_rev = base_price * v_scarce
+                harv_cost = c_base * j
+                R_mat[i, j] = harv_rev - harv_cost
+
+        V = self.S_mat**2
+        self.t_max = t_max
+
+        V[:,0] = V[:,0]/max(V[:,0])
+        V[:,1] = V[:,1]/max(V[:,1])
+        V = V.sum(axis=1) # terminal value 
+
+        self.A_mat = np.zeros((self.num_states, self.t_max), dtype=int)
+        
+        for t in range(self.t_max):
+            for i in range(len(list(self.T_mats.items()))):
+                # Calculate Future Value (Expected Value of next state)
+                future_val = list(self.T_mats.items())[i][1] @ V
+                
+                # Add Immediate Economic Reward (R_mat) to Future Value
+                # This is the "Economic Incentive" step
+                total_val = R_mat[:, i] + future_val
+
+                if i == 0:
+                    tup = (total_val,)
+                else:
+                    tup = tup + (total_val,)
+            
+            cull = np.column_stack(tup)
+
+            V = np.max(cull, axis=1)
+            self.A_mat[:, self.t_max - t -1] = np.argmax(cull,axis=1)
+    
+        # Save Policy Matrix
+        self.P_mat = np.zeros((self.N_max, self.P_max))
+
+        for i in range(self.num_states):
+            n = int(self.S_mat[i, 0])
+            p = int(self.S_mat[i, 1])
+            self.P_mat[n-1, p-1] = self.A_mat[i, 0]
+
+    def sdp(self, value:str = 'quadratic', t_max:int = 250)-> None:
         """
         Perform stochastic dynamic programming to find optimal culling strategy
-
+        :param value: Type of terminal value function ('quadratic', 'linear', 'economics')
         :param t_max: Maximum time horizon
         """
-        self.t_max = t_max
         V = self.S_mat**2
+        self.t_max = t_max
 
         V[:,0] = V[:,0]/max(V[:,0])
         V[:,1] = V[:,1]/max(V[:,1])
@@ -161,7 +213,15 @@ class PredatorPreySDP:
 
             V = np.max(cull, axis=1)
             self.A_mat[:, self.t_max - t -1] = np.argmax(cull,axis=1)
+        
+        # Save Policy Matrix
+        self.P_mat = np.zeros((self.N_max, self.P_max))
 
+        for i in range(self.num_states):
+            n = int(self.S_mat[i, 0])
+            p = int(self.S_mat[i, 1])
+            self.P_mat[n-1, p-1] = self.A_mat[i, 0]
+        
     def reset_lists(self) -> None:
         """
         Reset the lists used to store population trajectories and extinction times
@@ -207,14 +267,6 @@ class PredatorPreySDP:
                             'unmanaged':[np.zeros((self.N_max+1,self.P_max+1))
                                         , np.zeros((self.N_max+1,self.P_max+1))]}
 
-        if cull:
-            P_mat = np.zeros((self.N_max, self.P_max))
-
-            for i in range(self.num_states):
-                n = int(self.S_mat[i, 0])
-                p = int(self.S_mat[i, 1])
-                P_mat[n-1, p-1] = self.A_mat[i, 0]
-
         if N_0 == None and P_0 == None:
             N_0 = random.uniform(d+1, self.N_max)
             P_0 = random.uniform(d+1, self.P_max)
@@ -236,13 +288,13 @@ class PredatorPreySDP:
             # check if we need to cull
             if cull:
                 if N[t-1] > self.N_max and P[t-1] > self.P_max:
-                    N_next += -P_mat[self.N_max - 1, self.P_max - 1]
+                    N_next += -self.P_mat[self.N_max - 1, self.P_max - 1]
                 if N[t-1] > self.N_max:
-                    N_next += -P_mat[self.N_max - 1, round(P[t-1])-1]
+                    N_next += -self.P_mat[self.N_max - 1, round(P[t-1])-1]
                 if P[t-1] > self.P_max:
-                    N_next += -P_mat[round(N[t-1])-1, self.P_max-1]
+                    N_next += -self.P_mat[round(N[t-1])-1, self.P_max-1]
                 else:
-                     N_next += -P_mat[round(N[t-1])-1, round(P[t-1])-1]
+                        N_next += -self.P_mat[round(N[t-1])-1, round(P[t-1])-1]
 
             N.append(round(Z_N * N_next))
             P.append(round(Z_P * P_next))
@@ -288,7 +340,7 @@ class PredatorPreySDP:
         ax.legend()
 
         return fig
-    
+
     def plot_sdp(self)-> plt.Figure:
         '''
         Plot an optimal culling strategy
@@ -298,15 +350,12 @@ class PredatorPreySDP:
         1 - Cull predator
         2 - Cull prey
         '''
-        image_mat = np.zeros((self.N_max, self.P_max))
 
-        for i in range(self.num_states):
-            n = int(self.S_mat[i, 0])
-            p = int(self.S_mat[i, 1])
-            image_mat[n-1, p-1] = self.A_mat[i, 0]
+        if self.P_mat is None:
+            raise ValueError("Policy matrix not set. Please run methods sdp or sdp_economic first.")
 
         fig, ax = plt.subplots(figsize=(8, 6))
-        c = ax.pcolor(np.arange(self.N_max+1), np.arange(self.P_max+1), image_mat.T, shading='auto')
+        c = ax.pcolor(np.arange(self.N_max+1), np.arange(self.P_max+1), self.P_mat.T, shading='auto')
         fig.colorbar(c, ax = ax, label="Action")
         ax.set_xlabel("N")
         ax.set_ylabel("P")

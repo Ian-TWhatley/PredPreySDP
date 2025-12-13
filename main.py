@@ -94,7 +94,18 @@ if __name__ == "__main__":
             sim = load_sim()
         if st.session_state['ran_new_sim'] == True:
             sim = run(inits, args)
+        ''' Not implemented yet     '''
+        # if st.button("Reset Data"):
+        #     sim.reset_lists()
+        #     for i in range(sim.num_states):
+        #         for _ in range(100):
+        #             sim.model_pop(N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
 
+        #     for i in range(sim.num_states):
+        #         for _ in range(100):
+        #             sim.model_pop(cull = False, N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
+        
+        sim.sdp()
         opt_plot = sim.plot_sdp()
         st.pyplot(opt_plot)
 
@@ -143,96 +154,98 @@ if __name__ == "__main__":
         st.header('Percent Extinction Matrices')
         col1, col2, col3 = st.columns(3)
 
+        tab1, tab2 = st.tabs(["Extinction Percentages", "Extinction Times"])
+        with tab1:
+            # Unmanaged extinction matrix
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                fig1, ax1 = plt.subplots(figsize=(6, 5))
+                c1 = ax1.pcolor(
+                    np.arange(sim.N_max+1),
+                    np.arange(sim.P_max+1),
+                    sim.ext_mats['unmanaged'][0].T / 100,
+                    shading='auto'
+                )
+                fig1.colorbar(c1, ax=ax1, label="Extinction %")
+                ax1.set_xlabel("N₀")
+                ax1.set_ylabel("P₀")
+                ax1.set_title("Unmanaged Extinction")
+                st.pyplot(fig1)
+
+            # Managed extinction matrix
+            with col2:
+                fig2, ax2 = plt.subplots(figsize=(6, 5))
+                c2 = ax2.pcolor(
+                    np.arange(sim.N_max+1),
+                    np.arange(sim.P_max+1),
+                    sim.ext_mats['managed'][0].T / 100,
+                    shading='auto'
+                )
+                fig2.colorbar(c2, ax=ax2, label="Extinction %")
+                ax2.set_xlabel("N₀")
+                ax2.set_ylabel("P₀")
+                ax2.set_title("Managed Extinction")
+                st.pyplot(fig2)
+
+            # Difference matrix
+            with col3:
+                fig3, ax3 = plt.subplots(figsize=(6, 5))
+                c3 = ax3.pcolor(
+                    np.arange(sim.N_max+1),
+                    np.arange(sim.P_max+1),
+                    (sim.ext_mats['unmanaged'][0] - sim.ext_mats['managed'][0]).T / 100,
+                    shading='auto'
+                )
+                fig3.colorbar(c3, ax=ax3, label="Extinction Difference %")
+                ax3.set_xlabel("N₀")
+                ax3.set_ylabel("P₀")
+                ax3.set_title("Difference Matrix")
+                st.pyplot(fig3)
         # Unmanaged extinction matrix
-        with col1:
-            fig1, ax1 = plt.subplots(figsize=(6, 5))
-            c1 = ax1.pcolor(
-                np.arange(sim.N_max+1),
-                np.arange(sim.P_max+1),
-                sim.ext_mats['unmanaged'][0].T / 100,
-                shading='auto'
-            )
-            fig1.colorbar(c1, ax=ax1, label="Extinction %")
-            ax1.set_xlabel("N₀")
-            ax1.set_ylabel("P₀")
-            ax1.set_title("Unmanaged Extinction")
-            st.pyplot(fig1)
+        with tab2:
+            # Unmanaged extinction matrix
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                fig1, ax1 = plt.subplots(figsize=(6, 5))
+                c1 = ax1.pcolor(
+                    np.arange(sim.N_max+1),
+                    np.arange(sim.P_max+1),
+                    sim.ext_mats['unmanaged'][1].T / sim.ext_mats['unmanaged'][0].T,
+                    shading='auto'
+                )
+                fig1.colorbar(c1, ax=ax1, label="Extinction %")
+                ax1.set_xlabel("N₀")
+                ax1.set_ylabel("P₀")
+                ax1.set_title("Unmanaged Extinction")
+                st.pyplot(fig1)
 
-        # Managed extinction matrix
-        with col2:
-            fig2, ax2 = plt.subplots(figsize=(6, 5))
-            c2 = ax2.pcolor(
-                np.arange(sim.N_max+1),
-                np.arange(sim.P_max+1),
-                sim.ext_mats['managed'][0].T / 100,
-                shading='auto'
-            )
-            fig2.colorbar(c2, ax=ax2, label="Extinction %")
-            ax2.set_xlabel("N₀")
-            ax2.set_ylabel("P₀")
-            ax2.set_title("Managed Extinction")
-            st.pyplot(fig2)
+            # Managed extinction matrix
+            with col2:
+                fig2, ax2 = plt.subplots(figsize=(6, 5))
+                c2 = ax2.pcolor(
+                    np.arange(sim.N_max+1),
+                    np.arange(sim.P_max+1),
+                    sim.ext_mats['managed'][1].T / sim.ext_mats['managed'][0].T,
+                    shading='auto'
+                )
+                fig2.colorbar(c2, ax=ax2, label="Extinction %")
+                ax2.set_xlabel("N₀")
+                ax2.set_ylabel("P₀")
+                ax2.set_title("Managed Extinction")
+                st.pyplot(fig2)
 
-        # Difference matrix
-        with col3:
-            fig3, ax3 = plt.subplots(figsize=(6, 5))
-            c3 = ax3.pcolor(
-                np.arange(sim.N_max+1),
-                np.arange(sim.P_max+1),
-                (sim.ext_mats['unmanaged'][0] - sim.ext_mats['managed'][0]).T / 100,
-                shading='auto'
-            )
-            fig3.colorbar(c3, ax=ax3, label="Extinction Difference %")
-            ax3.set_xlabel("N₀")
-            ax3.set_ylabel("P₀")
-            ax3.set_title("Difference Matrix")
-            st.pyplot(fig3)
-
-        st.header('Average Extinction Time Matrices')
-        col1, col2 = st.columns(2)
-
-        # Unmanaged extinction matrix
-        with col1:
-            fig1, ax1 = plt.subplots(figsize=(6, 5))
-            c1 = ax1.pcolor(
-                np.arange(sim.N_max+1),
-                np.arange(sim.P_max+1),
-                sim.ext_mats['unmanaged'][1].T / sim.ext_mats['unmanaged'][0].T,
-                shading='auto'
-            )
-            fig1.colorbar(c1, ax=ax1, label="Average Extinction Time")
-            ax1.set_xlabel("N₀")
-            ax1.set_ylabel("P₀")
-            ax1.set_title("Unmanaged Extinction")
-            st.pyplot(fig1)
-
-        # Managed extinction matrix
-        with col2:
-            fig2, ax2 = plt.subplots(figsize=(6, 5))
-            c2 = ax2.pcolor(
-                np.arange(sim.N_max+1),
-                np.arange(sim.P_max+1),
-                sim.ext_mats['managed'][1].T / sim.ext_mats['managed'][0].T,
-                shading='auto'
-            )
-            fig2.colorbar(c2, ax=ax2, label="Average Extinction Time")
-            ax2.set_xlabel("N₀")
-            ax2.set_ylabel("P₀")
-            ax2.set_title("Managed Extinction")
-            st.pyplot(fig2)
-
-        # Difference matrix - Not ready yet, fix NaN to by infinity
-        # with col3:
-        #     fig3, ax3 = plt.subplots(figsize=(6, 5))
-        #     c3 = ax3.pcolor(
-        #         np.arange(sim.N_max+1)
-        #         , np.arange(sim.P_max+1)
-        #         , (sim.ext_mats['unmanaged'][1] - sim.ext_mats['managed'][1]).T/
-        #             (sim.ext_mats['unmanaged'][0] - sim.ext_mats['managed'][0]).T
-        #         , shading='auto'
-        #     )
-        #     fig3.colorbar(c3, ax=ax3, label="Average Extinction Time Difference")
-        #     ax3.set_xlabel("N₀")
-        #     ax3.set_ylabel("P₀")
-        #     ax3.set_title("Difference Matrix")
-        #     st.pyplot(fig3)
+            # Difference matrix
+            with col3:
+                fig3, ax3 = plt.subplots(figsize=(6, 5))
+                c3 = ax3.pcolor(
+                    np.arange(sim.N_max+1),
+                    np.arange(sim.P_max+1),
+                    (sim.ext_mats['unmanaged'][1] - sim.ext_mats['managed'][1]).T / 
+                        (sim.ext_mats['unmanaged'][0] - sim.ext_mats['managed'][0]).T,
+                    shading='auto'
+                )
+                fig3.colorbar(c3, ax=ax3, label="Extinction Difference %")
+                ax3.set_xlabel("N₀")
+                ax3.set_ylabel("P₀")
+                ax3.set_title("Difference Matrix")
+                st.pyplot(fig3)
