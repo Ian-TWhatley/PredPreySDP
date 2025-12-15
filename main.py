@@ -1,6 +1,6 @@
-import pandas as pd
+from time import sleep
+from stqdm import stqdm
 from SDP import PredatorPreySDP
-from IPython.display import HTML
 import streamlit as st
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,12 +17,14 @@ def run(inits:list = None, args:list = None) -> None:
     sim.sdp()
 
     # Customize this eventually, for now, unable
-    for i in range(sim.num_states):
+    for i in stqdm(range(sim.num_states), 'Modeling Managed Populations'):
         for _ in range(100):
+            sleep(0.5)
             sim.model_pop(N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
 
-    for i in range(sim.num_states):
+    for i in stqdm(range(sim.num_states), 'Modeling Unmanaged Populations'):
         for _ in range(100):
+            sleep(0.5)
             sim.model_pop(cull = False, N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
 
     return sim
@@ -94,16 +96,17 @@ if __name__ == "__main__":
             sim = load_sim()
         if st.session_state['ran_new_sim'] == True:
             sim = run(inits, args)
-        ''' Not implemented yet     '''
-        # if st.button("Reset Data"):
-        #     sim.reset_lists()
-        #     for i in range(sim.num_states):
-        #         for _ in range(100):
-        #             sim.model_pop(N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
+        if st.button("Reset Data"):
+            sim.reset_lists()
+            for i in stqdm(range(sim.num_states)):
+                for _ in range(100):
+                    sleep(0.001)
+                    sim.model_pop(N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
 
-        #     for i in range(sim.num_states):
-        #         for _ in range(100):
-        #             sim.model_pop(cull = False, N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
+            for i in stqdm(range(sim.num_states)):
+                for _ in range(100):
+                    sleep(0.001)
+                    sim.model_pop(cull = False, N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
         
         sim.sdp()
         opt_plot = sim.plot_sdp()
