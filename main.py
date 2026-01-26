@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pickle
 
-def run(inits:list = None, args:list = None) -> None:
+def run(inits:list = None, args:list = None) -> PredatorPreySDP:
     sim = PredatorPreySDP(*inits)
     sim.run(*args, matrix_name="T Matrix", sims=300, time = 3)
     sim.run(*args, matrix_name="T N Matrix 1", time = 3, sims=100, cull = 'prey', N_cull= 1)
@@ -14,19 +14,11 @@ def run(inits:list = None, args:list = None) -> None:
     sim.run(*args, matrix_name="T N Matrix 3",  sims=100, time = 3,cull = 'prey', N_cull= 3)
     sim.run(*args, matrix_name="T N Matrix 4",  sims=100, time = 3,cull = 'prey', N_cull= 4)
     sim.run(*args, matrix_name="T N Matrix 5",  sims=100, time = 3,cull = 'prey', N_cull= 5)
-    sim.sdp()
 
-    # Customize this eventually, for now, unable
-    for i in stqdm(range(sim.num_states), 'Modeling Managed Populations'):
-        for _ in range(100):
-            sleep(0.5)
-            sim.model_pop(N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
-
-    for i in stqdm(range(sim.num_states), 'Modeling Unmanaged Populations'):
-        for _ in range(100):
-            sleep(0.5)
-            sim.model_pop(cull = False, N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
-
+    #save simulation
+    with open("SDP_simulation.pkl", "wb") as f:
+        pickle.dump(sim, f)
+    
     return sim
 
 @st.cache_resource
@@ -50,6 +42,18 @@ if __name__ == "__main__":
         if st.button("Load Default Simulation"):
             st.session_state['ran_sim'] = True
             st.session_state['ran_default_sim'] = True
+        sdp_type = st.selectbox("SDP Type",("Standard", "Maximum Harvest", "Economic Optimization"))
+        ## Type of SDP Options #############
+        if sdp_type == "Standard": # Standard SDP Options
+            t_max = st.number_input('Time Horizon', 0, 10000, 250)
+            tol = st.number_input('Convergence Tolerance', 1e-10, 1e-2, 1e-8, format="%.1e")
+        if sdp_type == "Maximum Harvest": # Maximum Harvest SDP Options
+            t_max = st.number_input('Time Horizon', 0, 10000, 250)
+            disc_factor = st.slider('Discount Factor', 0.0, 1.0, 1.0)
+            alpha = st.slider('Harvest Weighting Factor', 0.0, 1.0, 0.5)
+            tol = st.number_input('Convergence Tolerance', 1e-10, 1e-2, 1e-8, format="%.1e")
+        if sdp_type == "Economic Optimization": # Economic Optimization SDP Options
+            st.text("Economic Optimization SDP Not Yet Implemented")
         st.divider()
         if st.button("Run New Simulation"):
             st.session_state['ran_sim'] = True
@@ -94,8 +98,47 @@ if __name__ == "__main__":
     if st.session_state["ran_sim"] == True:
         if st.session_state['ran_default_sim'] == True:
             sim = load_sim()
+            if sdp_type == "Standard":
+                sim.sdp_standard(t_max=t_max, tol=tol)
+                opt_plot = sim.plot_sdp()
+                st.pyplot(opt_plot)
+            if sdp_type == "Maximum Harvest":
+                sim.sdp_harv(t_max=t_max, disc_factor=disc_factor, alpha=alpha, tol=tol)
+                opt_plot = sim.plot_sdp()
+                st.pyplot(opt_plot)
+            # Customize this eventually, for now, unable
+            for i in stqdm(range(sim.num_states), 'Modeling Managed Populations'):
+                for _ in range(100):
+                    sleep(0.5)
+                    sim.model_pop(N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
+
+            for i in stqdm(range(sim.num_states), 'Modeling Unmanaged Populations'):
+                for _ in range(100):
+                    sleep(0.5)
+                    sim.model_pop(cull = False, N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
+            
         if st.session_state['ran_new_sim'] == True:
             sim = run(inits, args)
+            if sdp_type == "Standard":
+                sim.sdp_standard(t_max=t_max, tol=tol)
+                opt_plot = sim.plot_sdp()
+                st.pyplot(opt_plot)
+
+            if sdp_type == "Maximum Harvest":
+                sim.sdp_harv(t_max=t_max, disc_factor=disc_factor, alpha=alpha, tol=tol)
+                opt_plot = sim.plot_sdp()
+                st.pyplot(opt_plot)
+            # Customize this eventually, for now, unable
+            for i in stqdm(range(sim.num_states), 'Modeling Managed Populations'):
+                for _ in range(100):
+                    sleep(0.5)
+                    sim.model_pop(N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
+
+            for i in stqdm(range(sim.num_states), 'Modeling Unmanaged Populations'):
+                for _ in range(100):
+                    sleep(0.5)
+                    sim.model_pop(cull = False, N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
+            
         if st.button("Reset Data"):
             sim.reset_lists()
             for i in stqdm(range(sim.num_states)):
@@ -108,10 +151,6 @@ if __name__ == "__main__":
                     sleep(0.001)
                     sim.model_pop(cull = False, N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
         
-        sim.sdp()
-        opt_plot = sim.plot_sdp()
-        st.pyplot(opt_plot)
-
         # Create two columns
         st.header('Time Series Population Plots')
         col1, col2 = st.columns(2)
