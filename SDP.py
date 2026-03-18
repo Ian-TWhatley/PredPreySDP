@@ -2,7 +2,7 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 
-class PredatorPreySDP:
+class PredatorPreySystem:
     """
     Discrete predator-prey ODE simulation with stochastic noise and a stochastic dynamic programming component
 
@@ -24,10 +24,6 @@ class PredatorPreySDP:
         :param N_max: The maximum prey population
         :param P_max: The maximum predator population
         """
-        self.extinct = {'managed':[], 'unmanaged':[]}
-        self.ext_mats = None
-        self.N_list = {'managed':[], 'unmanaged':[]}
-        self.P_list = {'managed':[], 'unmanaged':[]}
         self.S_mat = np.array([[n,p] for n in range(N_max+1) for p in range(P_max+1)], dtype=float)
         self.num_states = self.S_mat.shape[0]
         self.T_mats = {}
@@ -90,10 +86,10 @@ class PredatorPreySDP:
                     # predator update
                     P_next = b*P[t-1]*N[t-1] - mu*P[t-1]
 
-                    if cull == 'prey':
+                    if cull.lower() == 'prey':
                         N_next = N_next - N_cull
 
-                    if cull == 'predator':
+                    if cull.lower() == 'predator':
                         P_next = P_next - P_cull
 
                     N.append(round(min(Z_N * N_next, self.N_max)))
@@ -136,19 +132,32 @@ class PredatorPreySDP:
         row_sums = mat.sum(axis=1, keepdims=True)
         return np.divide(mat, row_sums, where=row_sums!=0)
     
-    def sdp_economic(self, c_base, base_price, t_max:int = 250)-> None:
-        """
-        Perform stochastic dynamic programming to find optimal culling strategy based on economic incentives
-        :param c_base: Base cost of culling per animal
-        :param base_price: Base price of harvested animal
-        :param t_max: Maximum time horizon
-        """
-        R_mat = np.zeros((self.num_states,len(list(self.T_mats.items()))))
+class SDP:
+    """
+    Runs the stochastic dynamic programming algorithm to find optimal culling strategy and simulates population dynamics under that strategy.
 
-        for i in range(self.num_states):
-            N_i =  float(self.S_mat[i,0])
-            v_scarce = 1 + (1 - N_i/self.N_max)  # Scarcity multiplier increases as population decreases
-            for j in range(0,len(list(self.T_mats.items()))):
+    Currently two strategies available:
+    1. sdp_standard: Finds optimal strategy based on maximizing population size
+    2. sdp_harv: Finds optimal strategy based on maximizing a reward function that includes both
+    harvesting and population size,with a weighting factor alpha between the two objectives.
+
+    """
+    def __init__(self, system: PredatorPreySystem):
+        self.system = system
+        self.extinct = {'managed':[], 'unmanaged':[]}
+        self.ext_mats = None
+        self.N_list = {'managed':[], 'unmanaged':[]}
+        self.P_list = {'managed':[], 'unmanaged':[]}
+        self.cull_total = 0
+    
+    def sdp_economic(self, c_base, base_price, t_max:int = 250)-> None:
+        self.cull_total = 0
+        R_mat = np.zeros((self.system.num_states,len(list(self.system.T_mats.items()))))
+
+        for i in range(self.system.num_states):
+            N_i =  float(self.system.S_mat[i,0])
+            v_scarce = 1 + (1 - N_i/self.system.N_max)  # Scarcity multiplier increases as population decreases
+            for j in range(0,len(list(self.system.T_mats.items()))):
                 # R_i,j = Harvest_j * Base_Price * V_scarcity(N_i) - Cost_j
                 # We apply the scarcity multiplier (V_scarcity) to the base price
                 if N_i == 0:
@@ -158,16 +167,16 @@ class PredatorPreySDP:
                 harv_cost = c_base * j
                 R_mat[i, j] = harv_rev - harv_cost
 
-        V = self.S_mat
+        V = self.system.S_mat
         self.t_max = t_max
         V = V.sum(axis=1) # terminal value 
 
-        self.A_mat = np.zeros((self.num_states, self.t_max), dtype=int)
+        self.A_mat = np.zeros((self.system.num_states, self.t_max), dtype=int)
         
         for t in range(self.t_max):
-            for i in range(len(list(self.T_mats.items()))):
+            for i in range(len(list(self.system.T_mats.items()))):
                 # Calculate Future Value (Expected Value of next state)
-                future_val = list(self.T_mats.items())[i][1] @ V
+                future_val = list(self.system.T_mats.items())[i][1] @ V
                 
                 # Add Immediate Economic Reward (R_mat) to Future Value
                 # This is the "Economic Incentive" step
@@ -184,97 +193,142 @@ class PredatorPreySDP:
             self.A_mat[:, self.t_max - t -1] = np.argmax(cull,axis=1)
     
         # Save Policy Matrix
-        self.P_mat = np.zeros((self.N_max, self.P_max))
+        self.P_mat = np.zeros((self.system.N_max, self.system.P_max))
 
-        for i in range(self.num_states):
-            n = int(self.S_mat[i, 0])
-            p = int(self.S_mat[i, 1])
+        for i in range(self.system.num_states):
+            n = int(self.system.S_mat[i, 0])
+            p = int(self.system.S_mat[i, 1])
             self.P_mat[n-1, p-1] = self.A_mat[i, 0]
 
-    def sdp_standard(self, t_max:int = 500, tol:float = 1e-8, t_threshold:float = 10)-> None:
+    def sdp_standard(self, t_max:int = 500, tol:float = 1e-8, t_threshold:float = 10, backward:bool = True, disc_factor:float = 1)-> None:
         """
-        Perform SDP solly based on population sizes of predator and prey
-
         Perform stochastic dynamic programming to find optimal culling strategy
         :param t_max: Maximum time horizon
         """
         self.stop = None
-        V = self.S_mat
-        V = V.sum(axis=1) # terminal value
+        self.cull_total = 0
+        num_actions = len(list(self.system.T_mats.items()))
 
-        self.A_mat = np.zeros((self.num_states, t_max), dtype=int)
-        # Backward iteration
-        for t in range(t_max):
-            V_old = V.copy()
-            Q = np.zeros((self.num_states, len(list(self.T_mats.items()))))
-            for i in range(len(list(self.T_mats.items()))):
-                Q[:, i] = list(self.T_mats.items())[i][1] @ V
-                
-            V = np.max(Q, axis=1)
-            self.A_mat[:, t_max - t -1] = np.argmax(Q,axis=1)
-            if t > t_threshold:
-                if np.linalg.norm(V - V_old) < tol:
-                    self.stop = t
-                    self.A_mat[:, 0] = np.argmax(Q,axis=1)
-                    break
-        
-        # Save Policy Matrix
-        self.P_mat = np.zeros((self.N_max, self.P_max))
+        V = self.system.S_mat.sum(axis=1) # terminal value
 
-        for i in range(self.num_states):
-            n = int(self.S_mat[i, 0])
-            p = int(self.S_mat[i, 1])
-            self.P_mat[n-1, p-1] = self.A_mat[i, 0]
+        self.A_mat = np.zeros((self.system.num_states, t_max), dtype=int)
+        # Backward iteration to find optimal policy
+        if backward == True:
+            for t in range(t_max):
+                V_old = V.copy()
+                Q = np.zeros((self.system.num_states, num_actions))
+                for i in range(num_actions):
+                    Q[:, i] = disc_factor*list(self.system.T_mats.items())[i][1] @ V
+                    
+                V = np.max(Q, axis=1)
+                self.A_mat[:, t_max - t -1] = np.argmax(Q,axis=1)
+                if t > t_threshold:
+                    if np.linalg.norm(V - V_old) < tol:
+                        self.stop = t
+                        self.A_mat[:, 0] = np.argmax(Q,axis=1)
+                        break
+            
+            # Save Policy Matrix
+            self.P_mat = np.zeros((self.system.N_max, self.system.P_max))
 
-    def sdp_harv(self,t_max=250, disc_factor:float = 0.99,alpha:float = 0.5, tol=1e-6, start_thresh=10)-> None: # This rewards harvesting animals,
+            for i in range(self.system.num_states):
+                n = int(self.system.S_mat[i, 0])
+                p = int(self.system.S_mat[i, 1])
+                self.P_mat[n-1, p-1] = self.A_mat[i, 0]
+
+        # Policy iteration to find optimal policy
+        if backward == False:
+            V = np.zeros(self.system.num_states)
+            for t in range(t_max):
+                V_old = V.copy()
+                Q = np.zeros((self.system.num_states, num_actions))
+                for i in range(num_actions):
+                    Q[:, i] = disc_factor*list(self.system.T_mats.items())[i][1].T @ V
+                    
+                V = np.max(Q, axis=1)
+                self.A_mat[:, t] = np.argmax(Q,axis=1)
+                if t > t_threshold:
+                    if np.linalg.norm(self.A_mat[:,t] - self.A_mat[:,t-1]) < tol:
+                        self.stop = t
+                        self.A_mat[:, -1] = np.argmax(Q,axis=1)
+                        break
+            
+            # Save Policy Matrix
+            self.P_mat = np.zeros((self.system.N_max, self.system.P_max))
+
+            for i in range(self.system.num_states):
+                n = int(self.system.S_mat[i, 0])
+                p = int(self.system.S_mat[i, 1])
+                self.P_mat[n-1, p-1] = self.A_mat[i, -1]
+
+    def sdp_harv(self,t_max=250, disc_factor:float = 1, tol=1e-6, start_thresh=10, backward=True)-> None: # This rewards harvesting animals,
         '''
-        SDP that rewards harvesting prey and the total population size of predator and prey with
-        a weighting factor alpha between the two objectives.
-
-        :param t_max: Maximum time horizon
-        :param disc_factor: Discount factor for future rewards
-        :param alpha: Weighting factor between harvesting reward and population size reward
+        Rewards harvesting the most prey over a large time horizon, with a discount factor.
         '''
         self.stop = None
-        num_actions = len(list(self.T_mats.items()))
-        R_mat = np.zeros((self.num_states,len(list(self.T_mats.items()))))
-        for i in range(self.num_states):
-            N_i =  float(self.S_mat[i,0])
-            P_i = float(self.S_mat[i,1])
-            for j in range(0,len(list(self.T_mats.items()))):
+        self.cull_total = 0
+        num_actions = len(list(self.system.T_mats.items()))
+
+        R_mat = np.zeros((self.system.num_states, num_actions))
+        for i in range(self.system.num_states): # Over all possible combination of prey and predator population sizes, find reward for each action and pop
+            N_i =  float(self.system.S_mat[i,0]) # Initialize population size
+            for a in range(0,num_actions):
                 if N_i == 0:
-                    R_mat[i, j] = 0
+                    R_mat[i, a] = 0
                     continue
-                R_mat[i, j] = (1-alpha)*min(N_i, j) + alpha * ((N_i-j) + P_i) # Reward is number harvested plus value of remaining population
+                R_mat[i, a] = min(a, N_i) # Reward is number harvested, cannot harvest more than population size
 
-        V = np.zeros(self.num_states)
-        self.A_mat = np.zeros((self.num_states, t_max), dtype=int)
+        self.A_mat = np.zeros((self.system.num_states, t_max), dtype=int)
         
-        for t in range(t_max):
-            V_old = V.copy()
-            Q = np.zeros((self.num_states, num_actions))
-            for i in range(num_actions):
-                # Calculate Future Value (Expected Value of next state)
-                future_val = list(self.T_mats.items())[i][1] @ V # This is really V_{t+1}(s')
+        if backward == True: # Backward iteration to find optimal policy
+            V = self.system.S_mat.sum(axis=1) # terminal value, should be what we want. I.e. (more animals better than less)
+            for t in range(t_max):
+                V_old = V.copy()
+                Q = np.zeros((self.system.num_states, num_actions))
+                for a in range(num_actions):
+                    Q[:, a] = R_mat[:, a] + disc_factor * (list(self.system.T_mats.items())[a][1] @ V) #Calculate imediate reward plus discounted future value
+
+                V = np.max(Q, axis=1) # Take the max over actions
+                self.A_mat[:, t_max - t -1] = np.argmax(Q,axis=1) # Save the action that gives the max value for each state
+                if t > start_thresh:
+                    if np.linalg.norm(self.A_mat[:,t]-self.A_mat[:,t-1]) <= tol:
+                        self.stop = t
+                        self.A_mat[:, 0] = np.argmax(Q,axis=1) # Set the t=0 action as the optimal
+                        break
                 
-                # Find total value of now and future
-                Q[:, i] = R_mat[:, i] + disc_factor*future_val
+            # Save Policy Matrix
+            self.P_mat = np.zeros((self.system.N_max, self.system.P_max))
 
-            V = np.max(Q, axis=1)
-            self.A_mat[:, t_max - t -1] = np.argmax(Q,axis=1)
-            if t > start_thresh and np.sum(V) > 0 and np.sum(V_old) > 0:
-                if np.linalg.norm(V/np.sum(V) - V_old/np.sum(V_old)) < tol:
-                    self.stop = t
-                    self.A_mat[:, 0] = np.argmax(Q,axis=1)
-                    break   
-    
-        # Save Policy Matrix
-        self.P_mat = np.zeros((self.N_max, self.P_max))
+            for i in range(self.system.num_states):
+                n = int(self.system.S_mat[i, 0])
+                p = int(self.system.S_mat[i, 1])
+                self.P_mat[n-1, p-1] = self.A_mat[i, 0]
+                        
+        if backward == False: #Policy iteration to find optimal policy
+            V = np.zeros(self.system.num_states) # should start at zero since we don't care about first value, 
+                                        # only how many we harvest at each step time indepndent
+            for t in range(t_max):
+                V_old = V.copy()
+                Q = np.zeros((self.system.num_states, num_actions))
+                for a in range(num_actions):
+                    # Calculate Future Value (Expected Value of next state)
+                    Q[:, a] = R_mat[:, a] + disc_factor * list(self.system.T_mats.items())[a][1] @ V_old # current reward plus discounted future value
 
-        for i in range(self.num_states):
-            n = int(self.S_mat[i, 0])
-            p = int(self.S_mat[i, 1])
-            self.P_mat[n-1, p-1] = self.A_mat[i, 0]
+                V = np.max(Q, axis=1)
+                self.A_mat[:, t] = np.argmax(Q,axis=1) # take maximum action for each state, determine policy
+                if t > start_thresh:
+                    if np.linalg.norm(self.A_mat[:, t] - self.A_mat[:, t-1]) <= tol:
+                        self.stop = t
+                        self.A_mat[:, -1] = np.argmax(Q,axis=1)
+                        break
+            
+            # Save Policy Matrix
+            self.P_mat = np.zeros((self.system.N_max, self.system.P_max))
+
+            for i in range(self.system.num_states):
+                n = int(self.system.S_mat[i, 0])
+                p = int(self.system.S_mat[i, 1])
+                self.P_mat[n-1, p-1] = self.A_mat[i, -1]
         
     def reset_lists(self) -> None:
         """
@@ -284,6 +338,7 @@ class PredatorPreySDP:
         self.ext_mats = None
         self.N_list = {'managed':[], 'unmanaged':[]}
         self.P_list = {'managed':[], 'unmanaged':[]}
+        self.cull_total = 0
 
     def model_pop(
             self,
@@ -314,16 +369,15 @@ class PredatorPreySDP:
         :param sigma: Environmental stochasticity
         :param time: Maximum time steps per simulation
         """
-        
         if self.ext_mats == None:
-            self.ext_mats = {'managed': [np.zeros((self.N_max+1,self.P_max+1))
-                                        , np.zeros((self.N_max+1,self.P_max+1))], 
-                            'unmanaged':[np.zeros((self.N_max+1,self.P_max+1))
-                                        , np.zeros((self.N_max+1,self.P_max+1))]}
+            self.ext_mats = {'managed': [np.zeros((self.system.N_max+1,self.system.P_max+1))
+                                        , np.zeros((self.system.N_max+1,self.system.P_max+1))], 
+                            'unmanaged':[np.zeros((self.system.N_max+1,self.system.P_max+1))
+                                        , np.zeros((self.system.N_max+1,self.system.P_max+1))]}
 
         if N_0 == None and P_0 == None:
-            N_0 = random.uniform(d+1, self.N_max)
-            P_0 = random.uniform(d+1, self.P_max)
+            N_0 = random.uniform(d+1, self.system.N_max)
+            P_0 = random.uniform(d+1, self.system.P_max)
 
         N = [N_0]
         P = [P_0]
@@ -341,14 +395,18 @@ class PredatorPreySDP:
 
             # check if we need to cull
             if cull:
-                if N[t-1] > self.N_max and P[t-1] > self.P_max:
-                    N_next += -self.P_mat[self.N_max - 1, self.P_max - 1]
-                if N[t-1] > self.N_max:
-                    N_next += -self.P_mat[self.N_max - 1, round(P[t-1])-1]
-                if P[t-1] > self.P_max:
-                    N_next += -self.P_mat[round(N[t-1])-1, self.P_max-1]
+                if N[t-1] > self.system.N_max and P[t-1] > self.system.P_max:
+                    N_next += -self.P_mat[self.system.N_max - 1, self.system.P_max - 1]
+                    self.cull_total += self.P_mat[self.system.N_max - 1, self.system.P_max - 1]
+                if N[t-1] > self.system.N_max:
+                    N_next += -self.P_mat[self.system.N_max - 1, round(P[t-1])-1]
+                    self.cull_total += self.P_mat[self.system.N_max - 1, round(P[t-1])-1]
+                if P[t-1] > self.system.P_max:
+                    N_next += -self.P_mat[round(N[t-1])-1, self.system.P_max-1]
+                    self.cull_total += self.P_mat[round(N[t-1])-1, self.system.P_max-1]
                 else:
-                        N_next += -self.P_mat[round(N[t-1])-1, round(P[t-1])-1]
+                    N_next += -self.P_mat[round(N[t-1])-1, round(P[t-1])-1]
+                    self.cull_total += self.P_mat[round(N[t-1])-1, round(P[t-1])-1]
 
             N.append(round(Z_N * N_next))
             P.append(round(Z_P * P_next))
@@ -409,7 +467,7 @@ class PredatorPreySDP:
             raise ValueError("Policy matrix not set. Please run methods sdp or sdp_economic first.")
 
         fig, ax = plt.subplots(figsize=(8, 6))
-        c = ax.pcolor(np.arange(self.N_max+1), np.arange(self.P_max+1), self.P_mat.T, shading='auto')
+        c = ax.pcolor(np.arange(self.system.N_max+1), np.arange(self.system.P_max+1), self.P_mat.T, shading='auto')
         fig.colorbar(c, ax = ax, label="Action")
         ax.set_xlabel("N")
         ax.set_ylabel("P")
@@ -419,20 +477,20 @@ class PredatorPreySDP:
     def _plot_extinction_matrices_percents(self) -> plt.Figure:
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 5))
         # Unmanaged extinction matrix
-        c1 = ax1.pcolor(np.arange(self.N_max+1), np.arange(self.P_max+1), self.ext_mats['unmanaged'][0].T/100, shading='auto',)
+        c1 = ax1.pcolor(np.arange(self.system.N_max+1), np.arange(self.system.P_max+1), self.ext_mats['unmanaged'][0].T/100, shading='auto',)
         fig.colorbar(c1, ax=ax1, label="Extinction %")
         ax1.set_xlabel("N_0")
         ax1.set_ylabel("P_0")
         ax1.set_title("Unmanaged Extinction Matrix")
 
         # Managed extinction matrix
-        c2 = ax2.pcolor(np.arange(self.N_max+1), np.arange(self.P_max+1), self.ext_mats['managed'][0].T/100, shading='auto')
+        c2 = ax2.pcolor(np.arange(self.system.N_max+1), np.arange(self.system.P_max+1), self.ext_mats['managed'][0].T/100, shading='auto')
         fig.colorbar(c2, ax=ax2, label="Extinction %")
         ax2.set_xlabel("N_0")
         ax2.set_ylabel("P_0")
         ax2.set_title("Managed Extinction Matrix")
 
-        c3 = ax3.pcolor(np.arange(self.N_max+1), np.arange(self.P_max+1), (self.ext_mats['unmanaged'][0]-self.ext_mats['managed'][0]).T/100, shading='auto')
+        c3 = ax3.pcolor(np.arange(self.system.N_max+1), np.arange(self.system.P_max+1), (self.ext_mats['unmanaged'][0]-self.ext_mats['managed'][0]).T/100, shading='auto')
         fig.colorbar(c3, ax=ax3, label="Extinction Difference %")
         ax3.set_xlabel("N_0")
         ax3.set_ylabel("P_0")
@@ -444,21 +502,21 @@ class PredatorPreySDP:
     def _plot_extinction_matrices_times(self) -> plt.Figure:
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 5))
         # Unmanaged extinction matrix
-        c1 = ax1.pcolor(np.arange(self.N_max+1), np.arange(self.P_max+1), self.ext_mats['unmanaged'][1].T/self.ext_mats['unmanaged'][0].T, shading='auto',)
+        c1 = ax1.pcolor(np.arange(self.system.N_max+1), np.arange(self.system.P_max+1), self.ext_mats['unmanaged'][1].T/self.ext_mats['unmanaged'][0].T, shading='auto',)
         fig.colorbar(c1, ax=ax1, label="Average Extinction Time")
         ax1.set_xlabel("N_0")
         ax1.set_ylabel("P_0")
         ax1.set_title("Unmanaged Extinction Matrix")
 
         # Managed extinction matrix
-        c2 = ax2.pcolor(np.arange(self.N_max+1), np.arange(self.P_max+1), 
+        c2 = ax2.pcolor(np.arange(self.system.N_max+1), np.arange(self.system.P_max+1), 
                         self.ext_mats['managed'][1].T/self.ext_mats['managed'][0].T, shading='auto')
         fig.colorbar(c2, ax=ax2, label="Average Extinction Time")
         ax2.set_xlabel("N_0")
         ax2.set_ylabel("P_0")
         ax2.set_title("Managed Extinction Matrix")
 
-        c3 = ax3.pcolor(np.arange(self.N_max+1), np.arange(self.P_max+1), 
+        c3 = ax3.pcolor(np.arange(self.system.N_max+1), np.arange(self.system.P_max+1), 
                         (self.ext_mats['unmanaged'][1].T-self.ext_mats['managed'][1].T)/
                             (self.ext_mats['unmanaged'][0].T-self.ext_mats['managed'][0].T), shading='auto')
         fig.colorbar(c3, ax=ax3, label="Average Extinction Time Difference")
