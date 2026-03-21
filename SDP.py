@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import matplotlib.pyplot as plt
+from scipy import stats
 
 class PredatorPreySystem:
     """
@@ -9,6 +10,7 @@ class PredatorPreySystem:
     Attributes:
         extinct (dict): Dictionary to store extinction times for managed and unmanaged populations
         ext_mats (dict): Matrices to store extinction counts and times
+        cull_mat (np.array): The amount of culling applied to each state given intial populations
         N_list (dict): Lists to store prey population trajectories for managed and unmanaged populations
         P_list (dict): Lists to store predator population trajectories for managed and unmanaged populations
         S_mat (np.array): State matrix containing all possible population states
@@ -41,8 +43,6 @@ class PredatorPreySystem:
             mu=0.1,
             sigma=0.05,
             matrix_name:str = None,
-            time=200,
-            sims = 1,
             cull:str = 'none',
             N_cull:int = 5,
             P_cull:int = 5,
@@ -60,77 +60,69 @@ class PredatorPreySystem:
         :param matrix_name: Name of the transition matrix, suggested T Matrix, T N Matrix 1, etc.
         :param time: Maximum time steps per simulation
         :param sims: Number of simulations per state
-        :param cull: Type of culling ('prey', 'predator', 'none')
+        :param cull: Type of culling ('prey', 'predator', 'both', or 'none')
         :param N_cull: Number of prey to cull if culling prey
         :param P_cull: Number of predators to cull if culling predators
         """
-        state_f_ind = 0
-        state_i_ind = 0
         mat = np.zeros((self.num_states,self.num_states),dtype=float) # Set matrix, may be anything
-        for _ in range(sims):
-            for i in range(self.num_states):
-                N = [self.S_mat[i,0]]
-                P = [self.S_mat[i,1]]
+        for i in range(self.num_states):
+            # Initial Values
+            N = self.S_mat[i,0]
+            P = self.S_mat[i,1]
 
-                for t in range(1, time):
-                    # Begin starting index for T matrix
-                    state_i_ind = np.where(np.all(self.S_mat == np.array([N[-1], P[-1]]), axis=1))[0][0]
+            # Deterministic averages
+            N_next = r*N*(1 - N / K) - a*N*P
+            P_next = b*P*N - mu*P
 
-                    # Create stochasticity
-                    Z_N = random.lognormvariate(0, sigma)
-                    Z_P = random.lognormvariate(0, sigma)
+            if cull == 'prey':
+                N_next = N_next - N_cull
 
-                    # prey update
-                    N_next = r*N[t-1]*(1 - N[t-1] / K) - a*N[t-1]*P[t-1]
+            if cull == 'predator':
+                P_next = P_next - P_cull
 
-                    # predator update
-                    P_next = b*P[t-1]*N[t-1] - mu*P[t-1]
+            if cull == 'both':
+                N_next = N_next - N_cull
+                P_next = P_next - P_cull
+            
+            # Ensure base values are positive for log-space math
+            N_next = max(N_next, 1e-9)
+            P_next = max(P_next, 1e-9)
 
-                    if cull.lower() == 'prey':
-                        N_next = N_next - N_cull
+            # Possible N values and probabilities given lognormal noise
+            n_vals = np.arange(self.N_max + 1)
+            n_probs = stats.lognorm.cdf(n_vals + 0.5, s=sigma, scale=N_next) - stats.lognorm.cdf(n_vals - 0.5, s=sigma, scale=N_next)
+            
+            # Possible P values and probabilities given lognormal noise
+            p_vals = np.arange(self.P_max + 1)
+            p_probs = stats.lognorm.cdf(p_vals + 0.5, s=sigma, scale=P_next) - stats.lognorm.cdf(p_vals - 0.5, s=sigma, scale=P_next)
 
-                    if cull.lower() == 'predator':
-                        P_next = P_next - P_cull
+            # Boundary handling (Extinction and Max Capacity)
+            # Prob(0) includes everything below 0.5
+            n_probs[0] = stats.lognorm.cdf(d-0.5, s=sigma, scale=N_next)
+            n_probs[1:d] = 0 # Set probabilities for states between 0 and d to 0
+            p_probs[0] = stats.lognorm.cdf(d-0.5, s=sigma, scale=P_next)
+            p_probs[1:d] = 0 # Set probabilities for states between 0 and d to 0
+            
+            # Prob(Max) includes everything above Max - 0.5
+            n_probs[-1] = 1.0 - stats.lognorm.cdf(self.N_max - 0.5, s=sigma, scale=N_next)
+            p_probs[-1] = 1.0 - stats.lognorm.cdf(self.P_max - 0.5, s=sigma, scale=P_next)
 
-                    N.append(round(min(Z_N * N_next, self.N_max)))
-                    P.append(round(min(Z_P * P_next, self.P_max)))
-
-                    # extinction check
-                    if N[t] < d or P[t] < d:
-                        if N[t] < d: N[t] = 0
-                        if P[t] < d: P[t] = 0
-                        state_f_ind = np.where(np.all(self.S_mat == np.array([N[-1], P[-1]]), axis=1))[0][0]
-
-                        # Update
-                        mat[state_i_ind,state_f_ind] += 1
-                        break
-                    
-                    # maximum check
-                    if N[t] > self.N_max or P[t] > self.P_max:
-                        if N[t] > self.N_max: N[t] = self.N_max
-                        if P[t] > self.P_max: P[t] = self.P_max
-
-                        # Find final index and update T matrix
-                        state_f_ind = np.where(np.all(self.S_mat == np.array([N[-1], P[-1]]), axis=1))[0][0]
-                        mat[state_i_ind,state_f_ind] += 1
-                        break
-                    
-                    # Find final index and update
-                    state_f_ind = np.where(np.all(self.S_mat == np.array([N[-1], P[-1]]), axis=1))[0][0] 
-                    mat[state_i_ind,state_f_ind] += 1
-                
-                self.T_mats[matrix_name] = mat
-        for mat in self.T_mats:
-            self.T_mats[mat] = self.mat_normalize(self.T_mats[mat])
-
-    def mat_normalize(self,mat) -> np.array:
+            # Fill the transition matrix row using outer product
+            # This gives the joint probability P(N=n and P=p) assuming independence of noise
+            joint_probs = np.outer(n_probs, p_probs).flatten()
+            mat[i, :] = joint_probs
+            self.T_mats[matrix_name] = mat
+    
+    def reset_lists(self) -> None:
         """
-        Normalize a matrix by row sums
-        
-        :param mat: Matrix to normalize
+        Reset the lists used to store population trajectories and extinction times
         """
-        row_sums = mat.sum(axis=1, keepdims=True)
-        return np.divide(mat, row_sums, where=row_sums!=0)
+        self.extinct = {'managed':[], 'unmanaged':[]}
+        self.ext_mats = None
+        self.cull_mat = None
+        self.N_list = {'managed':[], 'unmanaged':[]}
+        self.P_list = {'managed':[], 'unmanaged':[]}
+        self.cull_total = 0
     
 class SDP:
     """

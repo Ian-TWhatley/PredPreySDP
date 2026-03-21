@@ -8,12 +8,9 @@ import pickle
 
 def run(inits:list = None, args:list = None) -> PredatorPreySystem:
     sim = PredatorPreySystem(*inits)
-    sim.run(*args, matrix_name="T Matrix", sims=300, time = 3)
-    sim.run(*args, matrix_name="T N Matrix 1", time = 3, sims=100, cull = 'prey', N_cull= 1)
-    sim.run(*args ,matrix_name="T N Matrix 2",  sims=100, time = 3,cull = 'prey', N_cull= 2)
-    sim.run(*args, matrix_name="T N Matrix 3",  sims=100, time = 3,cull = 'prey', N_cull= 3)
-    sim.run(*args, matrix_name="T N Matrix 4",  sims=100, time = 3,cull = 'prey', N_cull= 4)
-    sim.run(*args, matrix_name="T N Matrix 5",  sims=100, time = 3,cull = 'prey', N_cull= 5)
+    sim.run(*args, matrix_name="T Matrix")
+    for i in stqdm(range(1, inits[0]+1), 'Loading Distributions'):
+        sim.run(*args, matrix_name="T N Matrix {i}", cull = 'prey', N_cull= i)
 
     #save simulation
     with open("SDP_simulation.pkl", "wb") as f:
@@ -46,11 +43,11 @@ if __name__ == "__main__":
         ## Type of SDP Options #############
         if sdp_type == "Standard": # Standard SDP Options
             t_max = st.number_input('Time Horizon', 0, 10000, 250)
-            tol = st.number_input('Convergence Tolerance', 0.00, 1e-2, 1e-8, format="%.1e")
+            tol = st.number_input('Convergence Tolerance', -1.0, 1e-2, 1e-8, format="%.1e")
         if sdp_type == "Maximum Harvest": # Maximum Harvest SDP Options
             t_max = st.number_input('Time Horizon', 0, 10000, 250)
             disc_factor = st.slider('Discount Factor', 0.0, 1.0, 1.0)
-            tol = st.number_input('Convergence Tolerance', 0.0, 1e-2, 1e-8, format="%.1e")
+            tol = st.number_input('Convergence Tolerance', -1.0, 1e-2, 1e-8, format="%.1e")
         if sdp_type == "Economic Optimization": # Economic Optimization SDP Options
             st.text("Economic Optimization SDP Not Yet Implemented")
         st.divider()
