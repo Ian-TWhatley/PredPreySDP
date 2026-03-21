@@ -13,7 +13,7 @@ Multiple simulations are run under this model to give the transition matrices of
 
 Everything can be run using the UI seen below.
 
-<img width="1918" height="1012" alt="app_overview" src="https://github.com/Ian-TWhatley/PredPreySDP/blob/main/pics_vids/app_overview.png"/>
+<img width="1918" height="1012" alt="app_overview" src="https://github.com/Ian-TWhatley/PredPreySDP/main/pics_vids/app_overview.png"/>
 
 ## How to Run
 In order to run, you must use streamlit.
