@@ -39,9 +39,9 @@ if __name__ == "__main__":
         if st.button("Load Default Simulation"):
             st.session_state['ran_sim'] = True
             st.session_state['ran_default_sim'] = True
-        sdp_type = st.selectbox("SDP Type",("Standard", "Maximum Harvest", "Economic Optimization"))
+        sdp_type = st.selectbox("SDP Type",("Maximum Population", "Maximum Harvest", "Economic Optimization"))
         ## Type of SDP Options #############
-        if sdp_type == "Standard": # Standard SDP Options
+        if sdp_type == "Maximum Population": # Max Pop SDP Options
             t_max = st.number_input('Time Horizon', 0, 10000, 250)
             tol = st.number_input('Convergence Tolerance', -1.0, 1e-2, 1e-8, format="%.1e")
         if sdp_type == "Maximum Harvest": # Maximum Harvest SDP Options
@@ -95,9 +95,9 @@ if __name__ == "__main__":
     if st.session_state["ran_sim"] == True:
         if st.session_state['ran_default_sim'] == True:
             sim = load_sim()
-            if sdp_type == "Standard":
+            if sdp_type == "Maximum Population":
                 sdp = SDP(sim)
-                sdp.sdp_standard(t_max=t_max, tol=tol)
+                sdp.sdp_bode(t_max=t_max, tol=tol)
                 opt_plot = sdp.plot_sdp()
                 st.pyplot(opt_plot)
             if sdp_type == "Maximum Harvest":
