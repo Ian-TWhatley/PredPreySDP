@@ -348,8 +348,8 @@ class SDP(PredatorPreySystem):
             self,
             t_max:int=250,
             disc_factor:float = 1,
-            policy_iter = True,
-            value_iter = False,
+            policy_iter = False,
+            value_iter = True,
             tol=0,
             t_threshold=10,
             backward=True

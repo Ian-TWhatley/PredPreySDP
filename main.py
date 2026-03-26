@@ -1,6 +1,7 @@
 from time import sleep
 from stqdm import stqdm
 from SDP import PredatorPreySystem, SDP
+import os
 import streamlit as st
 import matplotlib.pyplot as plt
 import numpy as np
@@ -8,11 +9,10 @@ import pickle
 
 def run(inits:list = None, args:list = None) -> PredatorPreySystem:
     sim = PredatorPreySystem(*inits)
-    sim.run(*args, matrix_name="T Matrix")
-    for i in stqdm(range(1, inits[0]+1), 'Loading Distributions'):
-        sim.run(*args, matrix_name="T N Matrix {i}", cull = 'prey', N_cull= i)
+    for i in stqdm(range(0, inits[0]+1), 'Loading Distributions'):
+        sim.run(*args, matrix_name=f"T N Matrix {i}", cull = 'prey', N_cull= i)
 
-    #save simulation
+    # Save simulation
     with open("SDP_simulation.pkl", "wb") as f:
         pickle.dump(sim, f)
     
@@ -31,14 +31,26 @@ if __name__ == "__main__":
         st.session_state["ran_new_sim"] = False
     if "ran_sim" not in st.session_state:
         st.session_state["ran_sim"] = False
+    if "ran_sdp" not in st.session_state:
+        st.session_state["ran_sdp"] = False
     if "time_series_index" not in st.session_state:
         st.session_state['time_series_index'] = 92941
+    if "sim" not in st.session_state:
+        st.session_state['sim'] = None
 
     with st.sidebar:
         st.title("Control Bar")
-        if st.button("Load Default Simulation"):
-            st.session_state['ran_sim'] = True
-            st.session_state['ran_default_sim'] = True
+        if st.button("Load Previous Simulation"):
+            if os.path.isfile('SDP_simulation.pkl') == False:
+                st.warning('No previous simulation exists, please run new simulation either in app interface or through run_simulation.py')
+            else:
+                with st.spinner("Loading..."): 
+                    st.session_state['sim'] = load_sim()
+                st.success('Finished Loading')
+                st.session_state['ran_sim'] = True
+        st.divider()
+        if st.button("Run SDP"):
+            st.session_state['ran_sdp'] = True
         sdp_type = st.selectbox("SDP Type",("Maximum Population", "Maximum Harvest", "Economic Optimization"))
         ## Type of SDP Options #############
         if sdp_type == "Maximum Population": # Max Pop SDP Options
@@ -92,21 +104,25 @@ if __name__ == "__main__":
     if st.toggle("Show Class Documentation", key="show_doc"):
         st.help(PredatorPreySystem)
         st.help(SDP)
-    if st.session_state["ran_sim"] == True:
-        if st.session_state['ran_default_sim'] == True:
-            sim = load_sim()
+    if st.session_state['ran_new_sim']:
+        st.session_state['sim'] = run(inits,args)
+        st.session_state['ran_new_sim'] = False
+    if st.session_state["ran_sdp"] == True:
+        if st.session_state['sim'] == None:
+            st.warning('No current predator prey simulation. Either load simulation or run a new one via user interface or run_simulation')
+        else:
+            sim = st.session_state['sim']
+            sdp = SDP(sim)
             if sdp_type == "Maximum Population":
-                sdp = SDP(sim)
-                sdp.sdp_bode(t_max=t_max, tol=tol)
-                opt_plot = sdp.plot_sdp()
-                st.pyplot(opt_plot)
+                sdp.sdp_bode(t_max=t_max, tol=tol) 
+                st.text(f'Stopping Timestep: t={sdp.stop}')
             if sdp_type == "Maximum Harvest":
-                sdp = SDP(sim)
                 sdp.sdp_harv(t_max=t_max, disc_factor=disc_factor, tol=tol)
-                opt_plot = sdp.plot_sdp()
-                st.pyplot(opt_plot)
-                st.text(f'{sdp.stop}')
+                st.text(f'Stopping Timestep: t={sdp.stop}')
             # Customize this eventually, for now, unable
+            opt_plot = sdp.plot_sdp()
+            st.pyplot(opt_plot)
+
             for i in stqdm(range(sim.num_states), 'Modeling Managed Populations'):
                 for _ in range(100):
                     sleep(0.5)
@@ -116,180 +132,156 @@ if __name__ == "__main__":
                 for _ in range(100):
                     sleep(0.5)
                     sdp.model_pop(cull = False, N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
+                
+            if st.button("Reset Data"):
+                sim.reset_lists()
+                for i in stqdm(range(sim.num_states)):
+                    for _ in range(100):
+                        sleep(0.001)
+                        sdp.model_pop(N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
+
+                for i in stqdm(range(sim.num_states)):
+                    for _ in range(100):
+                        sleep(0.001)
+                        sdp.model_pop(cull = False, N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
             
-        if st.session_state['ran_new_sim'] == True:
-            sim = run(inits, args)
-            if sdp_type == "Standard":
-                sdp = SDP(sim)
-                sdp.sdp_standard(t_max=t_max, tol=tol)
-                opt_plot = sdp.plot_sdp()
-                st.pyplot(opt_plot)
-
-            if sdp_type == "Maximum Harvest":
-                sdp = SDP(sim)
-                sdp.sdp_harv(t_max=t_max, disc_factor=disc_factor, tol=tol)
-                opt_plot = sdp.plot_sdp()
-                st.pyplot(opt_plot)
-            # Customize this eventually, for now, unable
-            for i in stqdm(range(sim.num_states), 'Modeling Managed Populations'):
-                for _ in range(100):
-                    sleep(0.5)
-                    sdp.model_pop(N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
-
-            for i in stqdm(range(sim.num_states), 'Modeling Unmanaged Populations'):
-                for _ in range(100):
-                    sleep(0.5)
-                    sdp.model_pop(cull = False, N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
+            # Create two columns
+            st.header('Time Series Population Plots')
+            col1, col2 = st.columns(2)
+            with col1:
+                N_0 = st.number_input(
+                        'Inital N_0', 
+                        min_value=0,
+                        max_value = sim.N_max, 
+                        value=20, #default
+                        step=1)
+            with col2:
+                P_0 = st.number_input(
+                        'Inital P_0', 
+                        min_value=0,
+                        max_value = sim.P_max, 
+                        value=10, #default
+                        step=1)
             
-        if st.button("Reset Data"):
-            sim.reset_lists()
-            for i in stqdm(range(sim.num_states)):
-                for _ in range(100):
-                    sleep(0.001)
-                    sdp.model_pop(N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
-
-            for i in stqdm(range(sim.num_states)):
-                for _ in range(100):
-                    sleep(0.001)
-                    sdp.model_pop(cull = False, N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
-        
-        # Create two columns
-        st.header('Time Series Population Plots')
-        col1, col2 = st.columns(2)
-        with col1:
-            N_0 = st.number_input(
-                    'Inital N_0', 
-                    min_value=0,
-                    max_value = sim.N_max, 
-                    value=20, #default
-                    step=1)
-        with col2:
-            P_0 = st.number_input(
-                    'Inital P_0', 
-                    min_value=0,
-                    max_value = sim.P_max, 
-                    value=10, #default
-                    step=1)
-        
-        # Create indeces for given N_0 and P_)
-        man_initial_indices = []
-        for idx, (n, p) in enumerate(zip(sdp.N_list['managed'], sdp.P_list['managed'])):
-            if n[0] == N_0 and p[0] == P_0:
-                man_initial_indices.append(idx)
-        unman_initial_indices = []
-        for idx, (n, p) in enumerate(zip(sdp.N_list['unmanaged'], sdp.P_list['unmanaged'])):
-            if n[0] == N_0 and p[0] == P_0:
-                unman_initial_indices.append(idx)
+            # Create indeces for given N_0 and P_)
+            man_initial_indices = []
+            for idx, (n, p) in enumerate(zip(sdp.N_list['managed'], sdp.P_list['managed'])):
+                if n[0] == N_0 and p[0] == P_0:
+                    man_initial_indices.append(idx)
+            unman_initial_indices = []
+            for idx, (n, p) in enumerate(zip(sdp.N_list['unmanaged'], sdp.P_list['unmanaged'])):
+                if n[0] == N_0 and p[0] == P_0:
+                    unman_initial_indices.append(idx)
 
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.header(f'Unmanaged Time Series')
-            unman_number = st.selectbox("Index", unman_initial_indices)
-            unman_time_plot = sdp.plot(type='unmanaged', i=unman_number)
-            st.pyplot(unman_time_plot)
-
-        with col2:
-            st.header('Managed Time Series')
-            man_number = st.selectbox("Index", man_initial_indices)
-            man_time_plot = sdp.plot(type='managed', i=man_number)
-            st.pyplot(man_time_plot)
-
-        st.header('Percent Extinction Matrices')
-        col1, col2, col3 = st.columns(3)
-
-        tab1, tab2 = st.tabs(["Extinction Percentages", "Extinction Times"])
-        with tab1:
-            # Unmanaged extinction matrix
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
-                fig1, ax1 = plt.subplots(figsize=(6, 5))
-                c1 = ax1.pcolor(
-                    np.arange(sim.N_max+1),
-                    np.arange(sim.P_max+1),
-                    sdp.ext_mats['unmanaged'][0].T / 100,
-                    shading='auto'
-                )
-                fig1.colorbar(c1, ax=ax1, label="Extinction %")
-                ax1.set_xlabel("N₀")
-                ax1.set_ylabel("P₀")
-                ax1.set_title("Unmanaged Extinction")
-                st.pyplot(fig1)
+                st.header(f'Unmanaged Time Series')
+                unman_number = st.selectbox("Index", unman_initial_indices)
+                unman_time_plot = sdp.plot(type='unmanaged', i=unman_number)
+                st.pyplot(unman_time_plot)
 
-            # Managed extinction matrix
             with col2:
-                fig2, ax2 = plt.subplots(figsize=(6, 5))
-                c2 = ax2.pcolor(
-                    np.arange(sim.N_max+1),
-                    np.arange(sim.P_max+1),
-                    sdp.ext_mats['managed'][0].T / 100,
-                    shading='auto'
-                )
-                fig2.colorbar(c2, ax=ax2, label="Extinction %")
-                ax2.set_xlabel("N₀")
-                ax2.set_ylabel("P₀")
-                ax2.set_title("Managed Extinction")
-                st.pyplot(fig2)
+                st.header('Managed Time Series')
+                man_number = st.selectbox("Index", man_initial_indices)
+                man_time_plot = sdp.plot(type='managed', i=man_number)
+                st.pyplot(man_time_plot)
 
-            # Difference matrix
-            with col3:
-                fig3, ax3 = plt.subplots(figsize=(6, 5))
-                c3 = ax3.pcolor(
-                    np.arange(sim.N_max+1),
-                    np.arange(sim.P_max+1),
-                    (sdp.ext_mats['unmanaged'][0] - sdp.ext_mats['managed'][0]).T / 100,
-                    shading='auto'
-                )
-                fig3.colorbar(c3, ax=ax3, label="Extinction Difference %")
-                ax3.set_xlabel("N₀")
-                ax3.set_ylabel("P₀")
-                ax3.set_title("Difference Matrix")
-                st.pyplot(fig3)
-        # Unmanaged extinction matrix
-        with tab2:
-            # Unmanaged extinction matrix
+            st.header('Percent Extinction Matrices')
             col1, col2, col3 = st.columns(3)
-            with col1:
-                fig1, ax1 = plt.subplots(figsize=(6, 5))
-                c1 = ax1.pcolor(
-                    np.arange(sim.N_max+1),
-                    np.arange(sim.P_max+1),
-                    sdp.ext_mats['unmanaged'][1].T / sdp.ext_mats['unmanaged'][0].T,
-                    shading='auto'
-                )
-                fig1.colorbar(c1, ax=ax1, label="Extinction %")
-                ax1.set_xlabel("N₀")
-                ax1.set_ylabel("P₀")
-                ax1.set_title("Unmanaged Extinction")
-                st.pyplot(fig1)
 
-            # Managed extinction matrix
-            with col2:
-                fig2, ax2 = plt.subplots(figsize=(6, 5))
-                c2 = ax2.pcolor(
-                    np.arange(sim.N_max+1),
-                    np.arange(sim.P_max+1),
-                    sdp.ext_mats['managed'][1].T / sdp.ext_mats['managed'][0].T,
-                    shading='auto'
-                )
-                fig2.colorbar(c2, ax=ax2, label="Extinction %")
-                ax2.set_xlabel("N₀")
-                ax2.set_ylabel("P₀")
-                ax2.set_title("Managed Extinction")
-                st.pyplot(fig2)
+            tab1, tab2 = st.tabs(["Extinction Percentages", "Extinction Times"])
+            with tab1:
+                # Unmanaged extinction matrix
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    fig1, ax1 = plt.subplots(figsize=(6, 5))
+                    c1 = ax1.pcolor(
+                        np.arange(sim.N_max+1),
+                        np.arange(sim.P_max+1),
+                        sdp.ext_mats['unmanaged'][0].T / 100,
+                        shading='auto'
+                    )
+                    fig1.colorbar(c1, ax=ax1, label="Extinction %")
+                    ax1.set_xlabel("N₀")
+                    ax1.set_ylabel("P₀")
+                    ax1.set_title("Unmanaged Extinction")
+                    st.pyplot(fig1)
 
-            # Difference matrix
-            with col3:
-                fig3, ax3 = plt.subplots(figsize=(6, 5))
-                c3 = ax3.pcolor(
-                    np.arange(sim.N_max+1),
-                    np.arange(sim.P_max+1),
-                    (sdp.ext_mats['unmanaged'][1] - sdp.ext_mats['managed'][1]).T / 
-                        (sdp.ext_mats['unmanaged'][0] - sdp.ext_mats['managed'][0]).T,
-                    shading='auto'
-                )
-                fig3.colorbar(c3, ax=ax3, label="Extinction Difference %")
-                ax3.set_xlabel("N₀")
-                ax3.set_ylabel("P₀")
-                ax3.set_title("Difference Matrix")
-                st.pyplot(fig3)
+                # Managed extinction matrix
+                with col2:
+                    fig2, ax2 = plt.subplots(figsize=(6, 5))
+                    c2 = ax2.pcolor(
+                        np.arange(sim.N_max+1),
+                        np.arange(sim.P_max+1),
+                        sdp.ext_mats['managed'][0].T / 100,
+                        shading='auto'
+                    )
+                    fig2.colorbar(c2, ax=ax2, label="Extinction %")
+                    ax2.set_xlabel("N₀")
+                    ax2.set_ylabel("P₀")
+                    ax2.set_title("Managed Extinction")
+                    st.pyplot(fig2)
+
+                # Difference matrix
+                with col3:
+                    fig3, ax3 = plt.subplots(figsize=(6, 5))
+                    c3 = ax3.pcolor(
+                        np.arange(sim.N_max+1),
+                        np.arange(sim.P_max+1),
+                        (sdp.ext_mats['unmanaged'][0] - sdp.ext_mats['managed'][0]).T / 100,
+                        shading='auto'
+                    )
+                    fig3.colorbar(c3, ax=ax3, label="Extinction Difference %")
+                    ax3.set_xlabel("N₀")
+                    ax3.set_ylabel("P₀")
+                    ax3.set_title("Difference Matrix")
+                    st.pyplot(fig3)
+            # Unmanaged extinction matrix
+            with tab2:
+                # Unmanaged extinction matrix
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    fig1, ax1 = plt.subplots(figsize=(6, 5))
+                    c1 = ax1.pcolor(
+                        np.arange(sim.N_max+1),
+                        np.arange(sim.P_max+1),
+                        sdp.ext_mats['unmanaged'][1].T / sdp.ext_mats['unmanaged'][0].T,
+                        shading='auto'
+                    )
+                    fig1.colorbar(c1, ax=ax1, label="Extinction %")
+                    ax1.set_xlabel("N₀")
+                    ax1.set_ylabel("P₀")
+                    ax1.set_title("Unmanaged Extinction")
+                    st.pyplot(fig1)
+
+                # Managed extinction matrix
+                with col2:
+                    fig2, ax2 = plt.subplots(figsize=(6, 5))
+                    c2 = ax2.pcolor(
+                        np.arange(sim.N_max+1),
+                        np.arange(sim.P_max+1),
+                        sdp.ext_mats['managed'][1].T / sdp.ext_mats['managed'][0].T,
+                        shading='auto'
+                    )
+                    fig2.colorbar(c2, ax=ax2, label="Extinction %")
+                    ax2.set_xlabel("N₀")
+                    ax2.set_ylabel("P₀")
+                    ax2.set_title("Managed Extinction")
+                    st.pyplot(fig2)
+
+                # Difference matrix
+                with col3:
+                    fig3, ax3 = plt.subplots(figsize=(6, 5))
+                    c3 = ax3.pcolor(
+                        np.arange(sim.N_max+1),
+                        np.arange(sim.P_max+1),
+                        (sdp.ext_mats['unmanaged'][1] - sdp.ext_mats['managed'][1]).T / 
+                            (sdp.ext_mats['unmanaged'][0] - sdp.ext_mats['managed'][0]).T,
+                        shading='auto'
+                    )
+                    fig3.colorbar(c3, ax=ax3, label="Extinction Difference %")
+                    ax3.set_xlabel("N₀")
+                    ax3.set_ylabel("P₀")
+                    ax3.set_title("Difference Matrix")
+                    st.pyplot(fig3)
