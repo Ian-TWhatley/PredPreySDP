@@ -2,7 +2,6 @@ import numpy as np
 import random
 import matplotlib.pyplot as plt
 from scipy import stats
-from scipy import stats
 
 class PredatorPreySystem:
     """
@@ -11,7 +10,6 @@ class PredatorPreySystem:
     Attributes:
         extinct (dict): Dictionary to store extinction times for managed and unmanaged populations
         ext_mats (dict): Matrices to store extinction counts and times
-        cull_mat (np.array): The amount of culling applied to each state given intial populations
         cull_mat (np.array): The amount of culling applied to each state given intial populations
         N_list (dict): Lists to store prey population trajectories for managed and unmanaged populations
         P_list (dict): Lists to store predator population trajectories for managed and unmanaged populations
@@ -63,22 +61,10 @@ class PredatorPreySystem:
         :param time: Maximum time steps per simulation
         :param sims: Number of simulations per state
         :param cull: Type of culling ('prey', 'predator', 'both', or 'none')
-        :param cull: Type of culling ('prey', 'predator', 'both', or 'none')
         :param N_cull: Number of prey to cull if culling prey
         :param P_cull: Number of predators to cull if culling predators
         """
         mat = np.zeros((self.num_states,self.num_states),dtype=float) # Set matrix, may be anything
-        for i in range(self.num_states):
-            # Initial Values
-            N = self.S_mat[i,0]
-            P = self.S_mat[i,1]
-
-            # Deterministic averages
-            N_next = r*N*(1 - N / K) - a*N*P
-            P_next = b*P*N - mu*P
-
-            if cull == 'prey':
-                N_next = N_next - N_cull
         for i in range(self.num_states):
             # Initial Values
             N = self.S_mat[i,0]
@@ -134,25 +120,10 @@ class PredatorPreySystem:
         self.extinct = {'managed':[], 'unmanaged':[]}
         self.ext_mats = None
         self.cull_mat = None
-        self.cull_mat = None
         self.N_list = {'managed':[], 'unmanaged':[]}
         self.P_list = {'managed':[], 'unmanaged':[]}
         self.cull_total = 0
     
-class SDP(PredatorPreySystem):
-    def __init__(self, system: PredatorPreySystem):
-        # Inherit from PredatorPreySystem
-        self.N_max = system.N_max
-        self.P_max = system.P_max
-        self.T_mats = system.T_mats
-        self.S_mat = system.S_mat
-        self.num_states = system.num_states
-        # New attributes for SDP
-        self.extinct = {'managed':[], 'unmanaged':[]}
-        self.ext_mats = None
-        self.cull_mat = None
-        self.N_list = {'managed':[], 'unmanaged':[]}
-        self.P_list = {'managed':[], 'unmanaged':[]}
 class SDP(PredatorPreySystem):
     def __init__(self, system: PredatorPreySystem):
         # Inherit from PredatorPreySystem
@@ -186,12 +157,8 @@ class SDP(PredatorPreySystem):
         # Backward iteration to find optimal policy
         if backward == True:
             V = terminal_val # terminal value
-            V = terminal_val # terminal value
             for t in range(t_max):
                 V_old = V.copy()
-                Q = np.zeros((self.num_states, num_actions))
-                for h in range(num_actions):
-                    Q[:, h] = self.R_mat[:,h] + disc_factor*list(self.T_mats.items())[h][1] @ V
                 Q = np.zeros((self.num_states, num_actions))
                 for h in range(num_actions):
                     Q[:, h] = self.R_mat[:,h] + disc_factor*list(self.T_mats.items())[h][1] @ V
@@ -209,24 +176,10 @@ class SDP(PredatorPreySystem):
                             self.stop = t
                             self.A_mat[:, 0] = np.argmax(Q,axis=1)
                             break
-                    if value_iter:
-                        if np.linalg.norm(V - V_old) <= tol:
-                            self.stop = t
-                            self.A_mat[:, 0] = np.argmax(Q,axis=1)
-                            break
-                    if policy_iter:
-                        if np.linalg.norm(self.A_mat[:,t_max -t -1] - self.A_mat[:,t_max - t]) <= tol:
-                            self.stop = t
-                            self.A_mat[:, 0] = np.argmax(Q,axis=1)
-                            break
             
             # Save Policy Matrix
             self.P_mat = np.zeros((self.N_max, self.P_max))
-            self.P_mat = np.zeros((self.N_max, self.P_max))
 
-            for i in range(self.num_states):
-                n = int(self.S_mat[i, 0])
-                p = int(self.S_mat[i, 1])
             for i in range(self.num_states):
                 n = int(self.S_mat[i, 0])
                 p = int(self.S_mat[i, 1])
@@ -234,7 +187,6 @@ class SDP(PredatorPreySystem):
 
         # Policy iteration to find optimal policy
         if backward == False:
-            V = np.zeros(self.num_states)
             V = np.zeros(self.num_states)
             for t in range(t_max):
                 V_old = V.copy()
@@ -258,11 +210,7 @@ class SDP(PredatorPreySystem):
             
             # Save Policy Matrix
             self.P_mat = np.zeros((self.N_max, self.P_max))
-            self.P_mat = np.zeros((self.N_max, self.P_max))
 
-            for i in range(self.num_states):
-                n = int(self.S_mat[i, 0])
-                p = int(self.S_mat[i, 1])
             for i in range(self.num_states):
                 n = int(self.S_mat[i, 0])
                 p = int(self.S_mat[i, 1])
@@ -561,15 +509,7 @@ class SDP(PredatorPreySystem):
                                         , np.zeros((self.N_max+1,self.P_max+1))]}
         if self.cull_mat is None:
             self.cull_mat = np.zeros((self.N_max+1,self.P_max+1))
-            self.ext_mats = {'managed': [np.zeros((self.N_max+1,self.P_max+1))
-                                        , np.zeros((self.N_max+1,self.P_max+1))], 
-                            'unmanaged':[np.zeros((self.N_max+1,self.P_max+1))
-                                        , np.zeros((self.N_max+1,self.P_max+1))]}
-        if self.cull_mat is None:
-            self.cull_mat = np.zeros((self.N_max+1,self.P_max+1))
         if N_0 == None and P_0 == None:
-            N_0 = random.uniform(d+1, self.N_max)
-            P_0 = random.uniform(d+1, self.P_max)
             N_0 = random.uniform(d+1, self.N_max)
             P_0 = random.uniform(d+1, self.P_max)
 
@@ -600,22 +540,9 @@ class SDP(PredatorPreySystem):
                     N_next += -self.P_mat[round(N[t-1])-1, self.P_max-1]
                     self.cull_total += self.P_mat[round(N[t-1])-1, self.P_max-1]
                     self.cull_mat[N_0, P_0] += self.P_mat[round(N[t-1])-1, self.P_max-1]
-                if N[t-1] > self.N_max and P[t-1] > self.P_max:
-                    N_next += -self.P_mat[self.N_max - 1, self.P_max - 1]
-                    self.cull_total += self.P_mat[self.N_max - 1, self.P_max - 1]
-                    self.cull_mat[N_0, P_0] += self.P_mat[self.N_max - 1, self.P_max - 1]
-                if N[t-1] > self.N_max:
-                    N_next += -self.P_mat[self.N_max - 1, round(P[t-1])-1]
-                    self.cull_total += self.P_mat[self.N_max - 1, round(P[t-1])-1]
-                    self.cull_mat[N_0, P_0] += self.P_mat[self.N_max - 1, round(P[t-1])-1]
-                if P[t-1] > self.P_max:
-                    N_next += -self.P_mat[round(N[t-1])-1, self.P_max-1]
-                    self.cull_total += self.P_mat[round(N[t-1])-1, self.P_max-1]
-                    self.cull_mat[N_0, P_0] += self.P_mat[round(N[t-1])-1, self.P_max-1]
                 else:
                     N_next += -self.P_mat[round(N[t-1])-1, round(P[t-1])-1]
                     self.cull_total += self.P_mat[round(N[t-1])-1, round(P[t-1])-1]
-                    self.cull_mat[N_0, P_0] += self.P_mat[round(N[t-1])-1, round(P[t-1])-1]
                     self.cull_mat[N_0, P_0] += self.P_mat[round(N[t-1])-1, round(P[t-1])-1]
 
             N.append(round(Z_N * N_next))
@@ -644,7 +571,6 @@ class SDP(PredatorPreySystem):
             self.N_list['unmanaged'].append(N)
             self.P_list['unmanaged'].append(P)
 
-    def plot(self, type:list,i=None) -> plt.Figure:
     def plot(self, type:list,i=None) -> plt.Figure:
         """
         Plot population time series
@@ -679,52 +605,10 @@ class SDP(PredatorPreySystem):
 
         fig, ax = plt.subplots(figsize=(8, 6))
         c = ax.pcolor(np.arange(self.N_max+1), np.arange(self.P_max+1), self.P_mat.T, shading='auto')
-        c = ax.pcolor(np.arange(self.N_max+1), np.arange(self.P_max+1), self.P_mat.T, shading='auto')
         fig.colorbar(c, ax = ax, label="Action")
         ax.set_xlabel("N")
         ax.set_ylabel("P")
         ax.set_title("Optimal Action Map")
-        return fig
-
-    def plot_dual_sdp(self, backwards: bool = True) -> plt.Figure:
-        '''
-        Plot an optimal culling strategy
-        '''
-        # Extract optimal actions for each state
-        if backwards == True:
-            optimal_actions = self.A_mat[:, 0] # Get the optimal action for each state at t=0
-        if backwards == False:
-            optimal_actions = self.A_mat[:, -1] # Get the optimal action for each state at the last iteration
-
-        # Create matrices for prey and predator harvests
-        prey_harvest_mat = np.zeros((self.N_max, self.P_max))
-        pred_harvest_mat = np.zeros((self.N_max, self.P_max))
-
-        for i in range(self.num_states):
-            n = int(self.S_mat[i, 0]) - 1  # Adjust for 0-based indexing
-            p = int(self.S_mat[i, 1]) - 1
-            action_idx = optimal_actions[i]
-            h, c = self.actions[action_idx]
-            prey_harvest_mat[n, p] = h
-            pred_harvest_mat[n, p] = c
-        
-        # Plot prey and predator harvests side by side
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
-
-        # Prey harvest
-        c1 = ax1.pcolor(np.arange(self.N_max+1), np.arange(self.P_max+1), prey_harvest_mat.T, shading='auto', vmin=0, vmax=prey_harvest_mat.max())
-        fig.colorbar(c1, ax=ax1, label="Prey Harvested")
-        ax1.set_xlabel("N")
-        ax1.set_ylabel("P")
-        ax1.set_title("Optimal Prey Harvest Map")
-
-        # Predator harvest
-        c2 = ax2.pcolor(np.arange(self.N_max+1), np.arange(self.P_max+1), pred_harvest_mat.T, shading='auto', vmin=0, vmax=pred_harvest_mat.max())
-        fig.colorbar(c2, ax=ax2, label="Predators Harvested")
-        ax2.set_xlabel("N")
-        ax2.set_ylabel("P")
-        ax2.set_title("Optimal Predator Harvest Map")
-
         return fig
 
     def plot_dual_sdp(self, backwards: bool = True) -> plt.Figure:
