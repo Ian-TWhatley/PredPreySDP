@@ -1,6 +1,6 @@
 from time import sleep
 from stqdm import stqdm
-from SDP import PredatorPreySystem, SDP
+from SDP import PredatorPreySystem, SDP, plot_dual_sdp, plot_time_series
 import os
 import streamlit as st
 import matplotlib.pyplot as plt
@@ -9,8 +9,8 @@ import pickle
 
 def run(inits:list = None, args:list = None) -> PredatorPreySystem:
     sim = PredatorPreySystem(*inits)
-    for i in stqdm(range(0, inits[0]+1), 'Loading Distributions'):
-        sim.run(*args, matrix_name=f"T N Matrix {i}", cull = 'prey', N_cull= i)
+    for i in stqdm(np.arange(0, inits[0]+box_size, box_size), 'Loading Distributions'):
+        sim.run(*args, matrix_name= f"T N Matrix {i}", cull = 'prey', N_cull= i)
 
     # Save simulation
     with open("SDP_simulation.pkl", "wb") as f:
@@ -38,7 +38,7 @@ if __name__ == "__main__":
     if "sim" not in st.session_state:
         st.session_state['sim'] = None
 
-    with st.sidebar:
+    with st.sidebar: # Control sidebar
         st.title("Control Bar")
         if st.button("Load Previous Simulation"):
             if os.path.isfile('SDP_simulation.pkl') == False:
@@ -51,59 +51,54 @@ if __name__ == "__main__":
         st.divider()
         if st.button("Run SDP"):
             st.session_state['ran_sdp'] = True
-        sdp_type = st.selectbox("SDP Type",("Population", "Harvest", "Balanced Harvest", "Economic"))
+        sdp_type = st.selectbox("SDP Type",("Biomass", "Sustainable Yield", "Non Extinction"))  
+        tol = st.number_input('Convergence Tolerance', 0.0, 1.0, 1e-1, format="%.1e")
+        disc_factor = st.slider('Discount Factor', 0.990, 1.000, 0.990, 0.001, format = "%.3f")
         ## Type of SDP Options #############
-        if sdp_type == "Population": # Max Pop SDP Options
+        if sdp_type == "Biomass": # Biomass Parameters
             t_max = st.number_input('Time Horizon', 0, 10000, 250)
-            disc_factor = st.slider('Discount Factor', 0.990, 1.000, 1.000, 0.001, format = "%.3f")
-            tol = st.number_input('Convergence Tolerance', -1.0, 1e-2, 1e-8, format="%.1e")
-        if sdp_type == "Harvest": # Maximum Harvest SDP Options
-            t_max = st.number_input('Time Horizon', 0, 10000, 250)
-            disc_factor = st.slider('Discount Factor', 0.990, 1.000, 1.000, 0.001, format = "%.3f")
-            tol = st.number_input('Convergence Tolerance', -1.0, 1e-2, 1e-8, format="%.1e")
-        if sdp_type == "Balanced Harvest": # Balanced Max Harvest SDP Options
-            t_max = st.number_input('Time Horizon', 0, 10000, 250)
-            disc_factor = st.slider('Discount Factor', 0.990, 1.000, 1.000, 0.001, format = "%.3f")
-            tol = st.number_input('Convergence Tolerance', -1.0, 1e-2, 1e-8, format="%.1e")
-        if sdp_type == "Economic": # Economic Optimization SDP Options
-            st.text("Economic Optimization SDP Not Yet Implemented")
+        if sdp_type == "Sustainable Yield": # Sustainable Yield Parameters
+            pass
+        if sdp_type == "Non Extinction": # Non Extinction Parameters
+            pass
         st.divider()
         if st.button("Run New Simulation"):
             st.session_state['ran_sim'] = True
             st.session_state['ran_new_sim'] = True
-        N_max = st.slider('Max N', 0, 100, 40)
-        P_max = st.slider('Max P', 0, 100, 30)
 
-        K = st.number_input('K', 0, 1000, 100)
-        d = st.slider('d', 0, 10, 2)
+        N_max = st.slider('Max N', 0, 30, 15)
+        P_max = st.slider('Max P', 0, 15, 10)
+        box_size = st.slider('box_size', 0.0, 1.0, 0.5)
+        delta = box_size
+
+        death = 0.1 # Not customizable yet
         a = st.slider('a', 0.0, 1.0, 0.01)
-        r = st.slider('r', 0.0, 2.5, 1.3)
-        b = st.slider('b', 0.0, 1.0, 0.08)
-        mu = st.slider('mu', 0.0, 1.0, 0.1)
+        r = st.slider('r', 0.0, 1.0, 0.02)
+        b = st.slider('b', 0.0, 1.0, 0.05)
+        d = st.slider('d', 0.0, 1.0, 0.11)
         sigma = st.slider('sigma', 0.0, 1.0, 0.05)
+
+        # Not relevant
+        K = 100
 
         on = st.toggle("Display Guide")
         if on:
             st.info(
                 """
-                d - Minimum value of the population. If below d, pop will extinct
-
                 a - The success rate of hunts by predator population
-
-                K - Carrying capacity of prey
 
                 r - The growth rate of prey
 
                 b - The birth rate of predators (reliant on prey pop)
 
-                mu - The death reate of predators
+                d - The death reate of predators
 
                 sigma - The environmental stochasticity factor
                 """
         )
         
-        inits = [N_max,P_max]
-        args = [d,a,K,r,b,mu,sigma]
+        inits = [N_max, P_max, box_size]
+        args = [death, a, r, b, d, sigma, K]
 
     st.title("Predator Prey SDP")
     if st.toggle("Show Class Documentation", key="show_doc"):
@@ -118,40 +113,40 @@ if __name__ == "__main__":
         else:
             sim = st.session_state['sim']
             sdp = SDP(sim)
-            if sdp_type == "Population":
-                sdp.sdp_standard(t_max=t_max, tol=tol, death = d, disc_factor=disc_factor) 
+            if sdp_type == "Biomass":
+                sdp.sdp_sustainable_yield(t_max=t_max, tol=tol, disc_factor=disc_factor, cull= 'prey', backward=True) 
                 st.text(f'Stopping Timestep: t={sdp.stop}')
-            if sdp_type == "Harvest":
-                sdp.sdp_harv_cynical(t_max=t_max, disc_factor=disc_factor, tol=tol, death = d)
+            if sdp_type == "Sustainable Yield":
+                sdp.sdp_sustainable_yield(disc_factor=disc_factor, tol=tol, cull = 'prey', value_iter=True, policy_iter=False)
                 st.text(f'Stopping Timestep: t={sdp.stop}')
-            if sdp_type == "Balanced Harvest":
-                sdp.sdp_harv(t_max=t_max, disc_factor=disc_factor, tol=tol, death=d)
+            if sdp_type == "Non Extinction":
+                sdp.sdp_non_extinction(disc_factor=disc_factor, tol=tol, cull = 'prey',value_iter=True, policy_iter=False)
                 st.text(f'Stopping Timestep: t={sdp.stop}')
             # Customize this eventually, for now, unable
             opt_plot = sdp.plot_sdp()
             st.pyplot(opt_plot)
 
-            for i in stqdm(range(sim.num_states), 'Modeling Managed Populations'):
+            for i in stqdm(range(sdp.num_states), 'Modeling Managed Populations'):
                 for _ in range(100):
-                    sleep(0.5)
-                    sdp.model_pop(N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
+                    sleep(0.1)
+                    sdp.model_pop(N_0 = sdp.S_mat[i,0], P_0=sdp.S_mat[i,1],cull = 'prey')
 
-            for i in stqdm(range(sim.num_states), 'Modeling Unmanaged Populations'):
+            for i in stqdm(range(sdp.num_states), 'Modeling Unmanaged Populations'):
                 for _ in range(100):
-                    sleep(0.5)
-                    sdp.model_pop(cull = False, N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
+                    sleep(0.1)
+                    sdp.model_pop(N_0 = sim.S_mat[i,0], P_0=sim.S_mat[i,1])
                 
             if st.button("Reset Data"):
                 sim.reset_lists()
-                for i in stqdm(range(sim.num_states)):
+                for i in stqdm(range(sdp.num_states)):
                     for _ in range(100):
                         sleep(0.001)
-                        sdp.model_pop(N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
+                        sdp.model_pop(N_0 = sim.S_mat[i,0], P_0=sim.S_mat[i,1])
 
-                for i in stqdm(range(sim.num_states)):
+                for i in stqdm(range(sdp.num_states)):
                     for _ in range(100):
                         sleep(0.001)
-                        sdp.model_pop(cull = False, N_0 = int(sim.S_mat[i,0]), P_0=int(sim.S_mat[i,1]))
+                        sdp.model_pop(cull = False, N_0 = sim.S_mat[i,0], P_0=sim.S_mat[i,1])
             
             # Create two columns
             st.header('Time Series Population Plots')
